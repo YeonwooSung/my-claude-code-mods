@@ -147,3 +147,9 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# macos
+.DS_Store
+
+# vscode
+.vscode/
