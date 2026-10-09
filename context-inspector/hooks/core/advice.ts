@@ -54,7 +54,7 @@ export function advise(input: AdviceInput): Advice[] {
   if (rereadFiles.length > 0)
     push({
       id: 'reread-unchanged',
-      title: 'Unchanged files read again while the earlier copy is still in context',
+      title: 'Unchanged files were read again while the earlier copy was still in context',
       evidence: list(rereadFiles, f => `${base(f.path)} ×${f.reads} (${tok(f.wasteEst)})`),
       action: 'Refer to the earlier result; for one part, Grep or Read with offset/limit',
       savings: rereadFiles.reduce((s, f) => s + f.wasteEst, 0),

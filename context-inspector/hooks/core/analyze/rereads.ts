@@ -10,9 +10,18 @@ export type RereadClass =
   | 'changed-externally'
   | 'unchanged-live'
 
-export type RereadRow = { seq: number; ctx: string; path: string; cls: RereadClass; est: number }
+export type RereadRow = { seq: number; ctx: string; path: string; cls: RereadClass; est: number; live: boolean }
 export type FileRereads = { path: string; reads: number; wasteEst: number; classes: Partial<Record<RereadClass, number>> }
-export type Rereads = { rows: RereadRow[]; files: FileRereads[]; wasteEst: number; compactionEst: number; deduped: number; wasteSeqs: Set<number> }
+// wasteEst: every unchanged-live re-read of the session; currentWasteEst: those whose copy is still in the window.
+export type Rereads = {
+  rows: RereadRow[]
+  files: FileRereads[]
+  wasteEst: number
+  currentWasteEst: number
+  compactionEst: number
+  deduped: number
+  wasteSeqs: Set<number>
+}
 
 // The first rule that matches wins (spec §4.2 and §10).
 function classify(r: ContextItem, prior: readonly ContextItem[], edits: readonly number[]): RereadClass {
@@ -44,13 +53,14 @@ export function rereads(items: readonly ContextItem[], edits: readonly EditRec[]
     const path = r.target!.value
     const key = `${r.ctx}\u0000${path}`
     const prior = history.get(key) ?? []
-    rows.push({ seq: r.seq, ctx: r.ctx, path, cls: classify(r, prior, editSeqs.get(key) ?? []), est: Math.round(r.est * k) })
+    rows.push({ seq: r.seq, ctx: r.ctx, path, cls: classify(r, prior, editSeqs.get(key) ?? []), est: Math.round(r.est * k), live: r.live })
     prior.push(r)
     history.set(key, prior)
   }
   const files = new Map<string, FileRereads>()
   const wasteSeqs = new Set<number>()
   let wasteEst = 0
+  let currentWasteEst = 0
   let compactionEst = 0
   let deduped = 0
   for (const row of rows) {
@@ -60,6 +70,7 @@ export function rereads(items: readonly ContextItem[], edits: readonly EditRec[]
     if (row.cls === 'unchanged-live') {
       f.wasteEst += row.est
       wasteEst += row.est
+      if (row.live) currentWasteEst += row.est
       wasteSeqs.add(row.seq)
     }
     if (row.cls === 'after-compaction' || row.cls === 'restored') compactionEst += row.est
@@ -70,6 +81,7 @@ export function rereads(items: readonly ContextItem[], edits: readonly EditRec[]
     rows,
     files: [...files.values()].filter(f => f.reads > 1).sort((a, b) => b.wasteEst - a.wasteEst || b.reads - a.reads || a.path.localeCompare(b.path)),
     wasteEst,
+    currentWasteEst,
     compactionEst,
     deduped,
     wasteSeqs,

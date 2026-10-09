@@ -93,7 +93,8 @@ test('compaction that lost an edited file is at least medium', () => {
 
 test('summary: waste adds re-read and similar waste without double counting', () => {
   const s = summarize(busy().snapshot(), 'main')
-  expect(s.wasteEst).toBe(s.rereads.wasteEst + s.similar.wasteEst)
+  expect(s.wasteEst).toBe(s.rereads.currentWasteEst + s.similar.wasteEst)
+  expect(s.rereads.currentWasteEst).toBe(s.rereads.wasteEst)
   expect(s.rereads.wasteEst).toBe(10_000)
   // the two identical Reads also form an exact cluster, but its waste is already the re-read's
   expect(s.similar.clusters.find(c => c.category === 'Read')!.wasteEst).toBe(0)
@@ -140,4 +141,25 @@ test('status line and pane lines', () => {
   const lines = paneLines(s, 40)
   expect(lines.every(l => l.text.length <= 40)).toBe(true)
   expect(lines[0]!.bold).toBe(true)
+})
+
+test('waste in the window vs session cost: a compaction that drops every copy zeroes current waste, not the advice', () => {
+  const l = new Ledger()
+  ingestAppend(l, promptRow('look at big.ts'))
+  for (const id of ['r1', 'r2', 'r3']) readFile(l, id, '/src/big.ts', 'x'.repeat(40_000)) // ≈10k each
+  const live = summarize(l.snapshot(), 'main')
+  expect(live.wasteEst).toBe(20_000)
+  ingestCompaction(l, { trigger: 'manual', messages: [] }, { messages: [] })
+  const s = summarize(l.snapshot(), 'main')
+  expect(s.rereads.currentWasteEst).toBe(0)
+  expect(s.rereads.wasteEst).toBe(20_000)
+  expect(s.sessionRereadEst).toBe(20_000)
+  expect(s.wasteEst).toBe(0)
+  expect(statusLine(s, 10)).toBe('ctx 10% · waste≈0')
+  const text = renderReport(s, 'rereads')
+  expect(text).toContain('waste ≈0\n')
+  expect(text).toContain('Re-reads — waste now ≈0 · session ≈20.0k · compaction-induced')
+  const advice = s.advice.find(a => a.id === 'reread-unchanged')!
+  expect(advice.savings).toBe(20_000)
+  expect(advice.title).toBe('Unchanged files were read again while the earlier copy was still in context')
 })

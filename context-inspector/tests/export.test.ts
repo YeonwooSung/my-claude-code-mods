@@ -19,6 +19,7 @@ test('export has meta first, one line per record, summary last, and no content',
   const records = lines.map(line => JSON.parse(line) as Record<string, unknown>)
   expect(records[0]).toEqual({ type: 'meta', schema: 'context-inspector/1', ...meta })
   expect(records.at(-1)!.type).toBe('summary')
+  expect(records.at(-1)).toMatchObject({ currentWasteEst: 0, sessionRereadEst: 0, rereadWasteEst: 0 })
   expect(records.filter(r => r.type === 'item').length).toBe(3)
   expect(records.filter(r => r.type === 'sample').length).toBe(1)
   const all = lines.join('\n')

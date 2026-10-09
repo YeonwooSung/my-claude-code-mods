@@ -47,7 +47,7 @@ function occupants(sum: Summary, n: number): string[] {
 
 function rereadLines(sum: Summary, n: number): string[] {
   const r = sum.rereads
-  const out = [`Re-reads — waste ${tok(r.wasteEst)} · compaction-induced ${tok(r.compactionEst)} · engine-deduped ${r.deduped}`]
+  const out = [`Re-reads — waste now ${tok(r.currentWasteEst)} · session ${tok(r.wasteEst)} · compaction-induced ${tok(r.compactionEst)} · engine-deduped ${r.deduped}`]
   if (r.files.length === 0) return [...out, '  no file was read twice']
   for (const f of r.files.slice(0, n)) {
     const classes = Object.entries(f.classes)

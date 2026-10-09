@@ -20,8 +20,11 @@ export type Summary = {
   compactions: CompactionView[]
   efficiency: Efficiency
   advice: Advice[]
-  // Unchanged re-reads plus near-duplicate outputs, each item counted once.
+  // Waste still in the window: unchanged re-reads whose copy is live plus near-duplicate live outputs,
+  // each item counted once.
   wasteEst: number
+  // Every unchanged re-read of the session, in the window or not.
+  sessionRereadEst: number
   dropped: number
   droppedLive: number
   hasBreakdown: boolean
@@ -46,7 +49,8 @@ export function summarize(s: Snapshot, scope: Scope, breakdown?: BreakdownLite):
     compactions: comps,
     efficiency: efficiency(s.samples, s.edits),
     advice: advise({ items, k, rereads: rr, clusters: sim.clusters, compactions: comps, breakdown }),
-    wasteEst: rr.wasteEst + sim.wasteEst,
+    wasteEst: rr.currentWasteEst + sim.wasteEst,
+    sessionRereadEst: rr.wasteEst,
     dropped: s.dropped,
     droppedLive: s.droppedLive,
     hasBreakdown: breakdown !== undefined,

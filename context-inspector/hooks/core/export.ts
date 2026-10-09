@@ -62,6 +62,8 @@ export function exportLines(s: Snapshot, sum: Summary, meta: ExportMeta): string
       segments: sum.segments,
       liveEst: sum.occupancy.liveEst,
       wasteEst: sum.wasteEst,
+      currentWasteEst: sum.rereads.currentWasteEst,
+      sessionRereadEst: sum.sessionRereadEst,
       rereadWasteEst: sum.rereads.wasteEst,
       similarWasteEst: sum.similar.wasteEst,
       compactionReflowEst: sum.rereads.compactionEst,
