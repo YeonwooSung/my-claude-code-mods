@@ -1,11 +1,18 @@
 {
   "name": "my-claude-code-mods",
-  "owner": { "name": "YeonwooSung" },
+  "owner": {
+    "name": "YeonwooSung"
+  },
   "plugins": [
     {
       "name": "agent-profiler",
       "source": "./agent-profiler",
       "description": "Execution profiler for Claude Code: model wait vs tools vs subagents, live, with OTLP export"
+    },
+    {
+      "name": "context-inspector",
+      "source": "./context-inspector",
+      "description": "Context waste analyzer: what fills the window, re-reads, near-duplicate outputs, what compaction kept, advice"
     }
   ]
 }
