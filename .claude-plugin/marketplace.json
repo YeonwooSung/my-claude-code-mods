@@ -1,0 +1,11 @@
+{
+  "name": "my-claude-code-mods",
+  "owner": { "name": "YeonwooSung" },
+  "plugins": [
+    {
+      "name": "agent-profiler",
+      "source": "./agent-profiler",
+      "description": "Execution profiler for Claude Code: model wait vs tools vs subagents, live, with OTLP export"
+    }
+  ]
+}

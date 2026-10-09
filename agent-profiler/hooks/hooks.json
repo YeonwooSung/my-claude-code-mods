@@ -1,0 +1,1 @@
+{ "description": "Agent Profiler hooks module", "modules": ["./register.tsx"] }
