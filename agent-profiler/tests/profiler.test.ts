@@ -157,3 +157,17 @@ test('a profiler made before the session id was known adopts it once', () => {
   p.adoptSessionId('other')
   expect(p.snapshot(0).sessionId).toBe('abc')
 })
+
+test('a stopped subagent closes its own open requests and tools', () => {
+  const p = new Profiler('s')
+  p.turnStart(0, 't')
+  p.subagentStart(1, 'a1', 'Explore')
+  p.stepStart(2, { turnId: 'sub', index: 0, model: 'h', agentId: 'a1' })
+  p.toolStart(3, { id: 'g', tool: 'Grep', agentId: 'a1', input: {} })
+  p.toolStart(4, { id: 'main-tool', tool: 'Read', input: {} })
+  p.subagentStop(10, 'a1')
+  expect(p.running(20).map(r => r.label)).toEqual(['Read'])
+  const s = p.snapshot(20)
+  expect(s.steps[0]?.end).toBe(10)
+  expect(s.tools.find(t => t.id === 'g')?.end).toBe(10)
+})

@@ -13,8 +13,14 @@
     "outputDir": {
       "type": "string",
       "title": "Trace directory",
-      "description": "Where <session>.otlp.json files are written (empty: ~/.claude/agent-profiler)",
+      "description": "Where trace files are written, one folder per session (empty: ~/.claude/agent-profiler)",
       "default": ""
+    },
+    "exportCommandText": {
+      "type": "boolean",
+      "title": "Export prompts and Bash commands",
+      "description": "Include turn prompts and Bash command lines in exported traces (files and POSTs), with obvious secrets redacted. Off: they stay out; command categories are still exported.",
+      "default": false
     }
   }
 }

@@ -230,6 +230,17 @@ export class Profiler {
     if (!agent) return
     if (agent.end === undefined) agent.end = t
     this.openAgents.delete(agentId)
+    // Whatever the agent left open ended with it, so running() and the ticker settle.
+    for (const id of [...this.openSteps]) {
+      const step = this.steps.get(id)
+      if (step?.ctx === agentId) this.stepEnd(t, id)
+    }
+    for (const id of [...this.openTools]) {
+      const tool = this.tools.get(id)
+      if (tool?.ctx !== agentId) continue
+      tool.end = t
+      this.openTools.delete(id)
+    }
     this.version += 1
     for (const turnId of [...(this.openTurns.get(agentId) ?? [])]) this.turnComplete(t, turnId, 'agent-stop')
   }

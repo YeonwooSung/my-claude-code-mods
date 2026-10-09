@@ -1,4 +1,4 @@
-import type { EngineInterface, PluginOptions, Register } from 'claude-code'
+import type { EngineInterface, PluginOptions, Register, Timer } from 'claude-code'
 
 import { summarize, type Scope, type Summary } from './core/analyze.ts'
 import { MAX_EXPORT_BYTES, pendingKeys, splitRequest } from './core/export.ts'
@@ -8,6 +8,11 @@ import { paneLines, renderReport, statusLine } from './core/report.ts'
 
 const VERSION = '0.1.0'
 const PANE = 'agent-profiler'
+const COMMANDS = [
+  { name: 'profile', description: "Show where this session's time went (model wait, tools, subagents, tests, re-reads); 'turn' for the last turn" },
+  { name: 'profile-pane', description: 'Open the live Agent Profiler pane' },
+  { name: 'profile-export', description: "Write this session's trace as OTLP JSON and send it to the configured endpoint" },
+]
 // Names this module load's files, so a hot reload or --resume never overwrites earlier batches.
 const LOAD_ID = Date.now().toString(36)
 
@@ -16,13 +21,14 @@ let lastPaint = 0
 let paintQueuedAt = 0
 let anonymous = 0
 let batchSeq = 0
+let ticker: Timer | undefined
 // Records already written as a per-turn batch, for the current profiler.
 let exported = new Set<string>()
 const toasted = new Set<string>()
 const summaries = new Map<Scope, { profiler: Profiler; version: number; sum: Summary }>()
 
 // Recording must never break the session: every bookkeeping step goes through here.
-function safe(fn: () => void): void {
+function safe<T>(fn: () => T): void {
   try {
     fn()
   } catch {
@@ -135,15 +141,16 @@ async function exportTrace($: EngineInterface, options: PluginOptions, mode: Exp
 
   // From snapshot to claim nothing awaits, so overlapping exports never pick the same records.
   const snap = p.snapshot(Date.now())
+  const commandText = options.exportCommandText === true
   let claimed: string[] = []
   let request: OtlpRequest
   if (mode === 'full') {
-    request = toOtlp(snap, VERSION)
+    request = toOtlp(snap, VERSION, { commandText })
   } else {
     claimed = pendingKeys(snap, done, mode === 'final')
     const keys = new Set(claimed)
     for (const key of claimed) done.add(key)
-    request = toOtlp(snap, VERSION, { include: key => keys.has(key), root: mode === 'final' })
+    request = toOtlp(snap, VERSION, { include: key => keys.has(key), root: mode === 'final', commandText })
   }
   const parts = splitRequest(request, MAX_EXPORT_BYTES)
   if (parts.length === 0) {
@@ -197,12 +204,23 @@ export const register: Register = (on, options) => {
     } catch {
       useProfiler(new Profiler())
     }
-    await $.command.register({ name: 'profile', description: "Show where this session's time went (model wait, tools, subagents, tests, re-reads); 'turn' for the last turn" })
-    await $.command.register({ name: 'profile-pane', description: 'Open the live Agent Profiler pane' })
-    await $.command.register({ name: 'profile-export', description: "Write this session's trace as OTLP JSON and send it to the configured endpoint" })
-    $.clock.every(1_000, () => {
-      if (profiler.running(Date.now()).length > 0) paintNow($)
-    })
+    // Each step on its own: a refusal here must not keep the session from starting.
+    for (const command of COMMANDS) {
+      try {
+        await $.command.register(command)
+      } catch {
+        // the command stays unavailable
+      }
+    }
+    safe(() => ticker?.cancel())
+    ticker = undefined
+    try {
+      ticker = $.clock.every(1_000, () => {
+        if (profiler.running(Date.now()).length > 0) paintNow($)
+      })
+    } catch {
+      // no live refresh
+    }
     return next(e)
   })
 
@@ -223,7 +241,7 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     safe(() => profiler.turnComplete(Date.now(), e.turnId, e.reason))
     paint($, true)
-    $.clock.after(0, () => autoExport($, options))
+    safe(() => $.clock.after(0, () => autoExport($, options)))
     return next(e)
   })
 

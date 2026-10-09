@@ -1,6 +1,7 @@
 import { classifyCommand } from './classify.ts'
 import { spanId, traceIdFromSession } from './ids.ts'
 import { MAIN, isAgentTool } from './profiler.ts'
+import { redactSecrets } from './redact.ts'
 import type { Snapshot } from './types.ts'
 
 type AttrValue = { stringValue: string } | { intValue: string } | { doubleValue: number } | { boolValue: boolean }
@@ -26,6 +27,8 @@ export type OtlpOptions = {
   include?: (key: string) => boolean
   // Emit the session root span. Default true; batches leave it to the final export.
   root?: boolean
+  // Export turn prompts and Bash command lines (redacted). Default false: both are left out.
+  commandText?: boolean
 }
 
 export type RecordKind = 'turn' | 'step' | 'tool' | 'agent'
@@ -59,6 +62,7 @@ export function toOtlp(s: Snapshot, version: string, options: OtlpOptions = {}):
   const traceId = traceIdFromSession(s.sessionId)
   const include = options.include ?? (() => true)
   const want = (kind: RecordKind, id: string) => include(recordKey(kind, id))
+  const text = (value: string | undefined) => (options.commandText === true && value ? redactSecrets(value) : undefined)
   const spans: OtlpSpan[] = []
   const end = (x: { end?: number }) => x.end ?? s.now
   const open = (x: { end?: number }) => (x.end === undefined ? true : undefined)
@@ -97,7 +101,7 @@ export function toOtlp(s: Snapshot, version: string, options: OtlpOptions = {}):
       'agent_profiler.category': 'turn',
       'agent_profiler.observability': 'observed',
       'agent_profiler.turn.reason': t.reason,
-      'agent_profiler.turn.prompt': t.prompt,
+      'agent_profiler.turn.prompt': text(t.prompt),
       'agent_profiler.incomplete': open(t),
     })
   }
@@ -179,7 +183,7 @@ export function toOtlp(s: Snapshot, version: string, options: OtlpOptions = {}):
       'agent_profiler.fs.path': x.input.path,
       'agent_profiler.fs.range': x.input.range,
       'agent_profiler.search.pattern': x.input.pattern,
-      'agent_profiler.bash.command': x.input.command,
+      'agent_profiler.bash.command': text(x.input.command),
       'agent_profiler.bash.category': x.tool === 'Bash' ? classifyCommand(x.input.command ?? '') : undefined,
       'agent_profiler.launched_agent': x.launchedAgentId,
       'agent_profiler.incomplete': open(x),
