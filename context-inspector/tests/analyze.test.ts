@@ -168,3 +168,25 @@ test('efficiency: growth per main turn within an epoch, lines per turn, explorat
   expect(e.exploration).toBe(1)
   expect(e.medianPerLine).toBe(2_000)
 })
+
+test('similar: a near-only cluster has kind near', () => {
+  const l = new Ledger()
+  runBash(l, 'b1', 'build', `${okLines(40)}\nTook 12 ms`)
+  runBash(l, 'b2', 'build', `${okLines(40)}\nTook 345 ms`)
+  const c = similar(l.snapshot().items, 1).clusters[0]!
+  expect(c.kind).toBe('near')
+  expect(c.size).toBe(2)
+})
+
+test('similar: waste excludes already-counted items even when the excluded one is the largest', () => {
+  const l = new Ledger()
+  runBash(l, 'b1', 'build', `${okLines(40)}\nTook 1 ms`)
+  runBash(l, 'b2', 'build', `${okLines(40)}\nTook ${'9'.repeat(800)} ms`) // largest, excluded
+  runBash(l, 'b3', 'build', `${okLines(40)}\nTook 22 ms`)
+  const items = l.snapshot().items
+  expect(items[1]!.est).toBeGreaterThan(items[0]!.est)
+  const sim = similar(items, 1, new Set([items[1]!.seq]))
+  expect(sim.clusters[0]!.size).toBe(3)
+  // kept copy is the larger non-excluded one; waste is the other non-excluded copy
+  expect(sim.wasteEst).toBe(Math.min(items[0]!.est, items[2]!.est))
+})

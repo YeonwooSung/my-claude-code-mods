@@ -4,9 +4,10 @@ import { label } from './occupancy.ts'
 
 export const NEAR_BITS = 3
 export const MIN_SIMILAR_CHARS = 200
-// Each band bucket compares against at most this many earlier members, which bounds the work on runs
-// of thousands of near-identical outputs (they are already joined through their first members).
-const BUCKET_CAP = 64
+// Performance bound, not an exactness guarantee: each band bucket compares against at most this many
+// earlier members, so near pairs among more than 256 distinct outputs sharing one band value may be
+// missed (an approximation, spec section 4.3).
+const BUCKET_CAP = 256
 
 export type Cluster = { kind: 'exact' | 'near' | 'mixed'; category: string; label: string; size: number; seqs: number[]; totalEst: number; wasteEst: number }
 export type Similar = { clusters: Cluster[]; wasteEst: number }
@@ -77,10 +78,10 @@ export function similar(items: readonly ContextItem[], k: number, exclude: Reado
     if (members.length < 2) continue
     const hashes = new Set(members.map(m => m.hash)).size
     const est = (m: ContextItem): number => Math.round(m.est * k)
-    const live = members.filter(m => m.live)
+    // Excluded items are re-reads already counted as waste; the copy kept is a non-excluded one.
+    const live = members.filter(m => m.live && !exclude.has(m.seq))
     const liveSum = live.reduce((s, m) => s + est(m), 0)
     const largest = live.reduce((s, m) => Math.max(s, est(m)), 0)
-    const excluded = live.filter(m => exclude.has(m.seq)).reduce((s, m) => s + est(m), 0)
     clusters.push({
       kind: hashes === 1 ? 'exact' : hashes === members.length ? 'near' : 'mixed',
       category: mostCommon(members.map(m => m.category)),
@@ -88,7 +89,7 @@ export function similar(items: readonly ContextItem[], k: number, exclude: Reado
       size: members.length,
       seqs: members.map(m => m.seq),
       totalEst: members.reduce((s, m) => s + est(m), 0),
-      wasteEst: Math.max(0, liveSum - largest - excluded),
+      wasteEst: Math.max(0, liveSum - largest),
     })
   }
   clusters.sort((a, b) => b.wasteEst - a.wasteEst || b.totalEst - a.totalEst || a.seqs[0]! - b.seqs[0]!)
