@@ -1,17 +1,24 @@
 import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
 import { summarize, type Scope, type Summary } from './core/analyze.ts'
-import { toOtlp } from './core/otlp.ts'
+import { MAX_EXPORT_BYTES, pendingKeys, splitRequest } from './core/export.ts'
+import { toOtlp, type OtlpRequest } from './core/otlp.ts'
 import { Profiler, summarizeInput, toolOutcome } from './core/profiler.ts'
 import { paneLines, renderReport, statusLine } from './core/report.ts'
 
 const VERSION = '0.1.0'
 const PANE = 'agent-profiler'
+// Names this module load's files, so a hot reload or --resume never overwrites earlier batches.
+const LOAD_ID = Date.now().toString(36)
 
 let profiler = new Profiler()
 let lastPaint = 0
 let paintQueuedAt = 0
 let anonymous = 0
+let batchSeq = 0
+// Records already written as a per-turn batch, for the current profiler.
+let exported = new Set<string>()
+const toasted = new Set<string>()
 const summaries = new Map<Scope, { profiler: Profiler; version: number; sum: Summary }>()
 
 // Recording must never break the session: every bookkeeping step goes through here.
@@ -57,31 +64,138 @@ function paint($: EngineInterface, force = false): void {
   }
 }
 
-async function persist($: EngineInterface, options: PluginOptions, send: boolean): Promise<string> {
-  const body = JSON.stringify(toOtlp(profiler.snapshot(Date.now()), VERSION))
-  const home = (await $.env.get('HOME')) ?? '.'
-  const dir = (String(options.outputDir ?? '').trim() || '~/.claude/agent-profiler').replace(/^~(?=\/|$)/, home)
-  const path = `${dir}/${profiler.sessionId}.otlp.json`
-  await $.fs.write(path, body)
-  const notes = [`wrote ${path}`]
-  const endpoint = String(options.otlpEndpoint ?? '').trim().replace(/\/+$/, '')
-  if (send && endpoint) {
-    const answer = await $.http.fetch(`${endpoint}/v1/traces`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body,
-    })
-    notes.push(answer.ok ? `sent to ${endpoint}` : `${endpoint} answered ${answer.status}`)
+function useProfiler(next: Profiler): void {
+  profiler = next
+  exported = new Set()
+}
+
+// Failures of automatic saves surface once each, as a toast; the status line is the profiler's own.
+function warn($: EngineInterface, message: string): void {
+  if (toasted.has(message)) return
+  toasted.add(message)
+  safe(() => $.ui.toast(`agent-profiler: ${message}`))
+}
+
+async function sessionIdOf($: EngineInterface, p: Profiler): Promise<string | undefined> {
+  if (p.sessionId !== 'unknown') return p.sessionId
+  try {
+    p.adoptSessionId(await $.session.id())
+  } catch {
+    // still unknown
   }
-  return notes.join(' · ')
+  return p.sessionId === 'unknown' ? undefined : p.sessionId
+}
+
+async function outputDir($: EngineInterface, options: PluginOptions): Promise<string> {
+  const dir = (String(options.outputDir ?? '').trim() || '~/.claude/agent-profiler').replace(/\/+$/, '')
+  if (!/^~(?=\/|$)/.test(dir)) return dir
+  return dir.replace(/^~/, (await $.env.get('HOME')) ?? '.')
+}
+
+function endpointOf(options: PluginOptions): string {
+  return String(options.otlpEndpoint ?? '').trim().replace(/\/+$/, '')
+}
+
+// One POST; with a deadline it gives up when the deadline passes or the signal aborts.
+async function post($: EngineInterface, endpoint: string, body: string, deadline?: { at: number; signal?: AbortSignal }): Promise<string | undefined> {
+  const request = $.http.fetch(`${endpoint}/v1/traces`, { method: 'POST', headers: { 'content-type': 'application/json' }, body })
+  request.catch(() => undefined) // a late failure after a timeout is nobody's business
+  try {
+    let answer
+    if (deadline) {
+      const left = deadline.at - Date.now()
+      if (left <= 0) return 'no time left before exit'
+      const timeout = $.clock.sleep(left, deadline.signal ? { signal: deadline.signal } : undefined).then(() => undefined)
+      answer = await Promise.race([request, timeout])
+      if (!answer) return `no answer within ${left}ms`
+    } else {
+      answer = await request
+    }
+    return answer.ok ? undefined : `${endpoint} answered ${answer.status}`
+  } catch (error) {
+    return String(error)
+  }
+}
+
+type ExportMode = 'batch' | 'final' | 'full'
+type ExportResult = { notes: string[]; failures: string[] }
+
+// batch: records finished since the last batch. final: everything not exported yet, open records
+// marked incomplete, and the session root. full: a whole snapshot (/profile-export), in chunk files.
+async function exportTrace($: EngineInterface, options: PluginOptions, mode: ExportMode, deadline?: { at: number; signal?: AbortSignal }): Promise<ExportResult> {
+  const result: ExportResult = { notes: [], failures: [] }
+  const p = profiler
+  const done = exported
+  const sessionId = await sessionIdOf($, p)
+  if (sessionId === undefined) {
+    result.failures.push('session id not known yet; nothing written')
+    return result
+  }
+  const dir = `${await outputDir($, options)}/${sessionId}`
+
+  // From snapshot to claim nothing awaits, so overlapping exports never pick the same records.
+  const snap = p.snapshot(Date.now())
+  let claimed: string[] = []
+  let request: OtlpRequest
+  if (mode === 'full') {
+    request = toOtlp(snap, VERSION)
+  } else {
+    claimed = pendingKeys(snap, done, mode === 'final')
+    const keys = new Set(claimed)
+    for (const key of claimed) done.add(key)
+    request = toOtlp(snap, VERSION, { include: key => keys.has(key), root: mode === 'final' })
+  }
+  const parts = splitRequest(request, MAX_EXPORT_BYTES)
+  if (parts.length === 0) {
+    if (mode === 'full') result.notes.push('nothing recorded yet')
+    return result
+  }
+
+  const bodies: string[] = []
+  try {
+    for (const [n, part] of parts.entries()) {
+      const name = mode === 'full' ? `${LOAD_ID}-full-${n + 1}` : `${LOAD_ID}-${String((batchSeq += 1)).padStart(4, '0')}`
+      const path = `${dir}/${name}.otlp.json`
+      const body = JSON.stringify(part)
+      await $.fs.write(path, body)
+      bodies.push(body)
+      result.notes.push(`wrote ${path}`)
+    }
+  } catch (error) {
+    for (const key of claimed) done.delete(key) // retried with the next batch
+    result.failures.push(`could not write to ${dir}: ${String(error)}`)
+    return result
+  }
+
+  const endpoint = endpointOf(options)
+  if (endpoint) {
+    let failed = 0
+    for (const body of bodies) {
+      const reason = await post($, endpoint, body, deadline)
+      if (reason !== undefined) {
+        failed += 1
+        result.failures.push(`POST failed: ${reason}`)
+        break
+      }
+    }
+    if (failed === 0) result.notes.push(`sent to ${endpoint}${bodies.length > 1 ? ` in ${bodies.length} requests` : ''}`)
+  }
+  return result
+}
+
+function autoExport($: EngineInterface, options: PluginOptions): void {
+  exportTrace($, options, 'batch').then(
+    r => r.failures.forEach(f => warn($, f)),
+    error => warn($, `could not save the trace: ${String(error)}`),
+  )
 }
 
 export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     try {
-      profiler = new Profiler(await $.session.id())
+      useProfiler(new Profiler(await $.session.id()))
     } catch {
-      profiler = new Profiler()
+      useProfiler(new Profiler())
     }
     await $.command.register({ name: 'profile', description: "Show where this session's time went (model wait, tools, subagents, tests, re-reads); 'turn' for the last turn" })
     await $.command.register({ name: 'profile-pane', description: 'Open the live Agent Profiler pane' })
@@ -96,7 +210,8 @@ export const register: Register = (on, options) => {
     const t = Date.now()
     try {
       const id = await $.session.id()
-      if (id !== profiler.sessionId) profiler = new Profiler(id) // a /clear starts a new session id
+      if (profiler.sessionId === 'unknown') profiler.adoptSessionId(id) // loaded mid-session
+      else if (id !== profiler.sessionId) useProfiler(new Profiler(id)) // a /clear starts a new session id
     } catch {
       // keep the current profiler
     }
@@ -108,9 +223,7 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     safe(() => profiler.turnComplete(Date.now(), e.turnId, e.reason))
     paint($, true)
-    $.clock.after(0, () => {
-      persist($, options, true).catch(() => $.ui.status('agent-profiler: could not save the trace'))
-    })
+    $.clock.after(0, () => autoExport($, options))
     return next(e)
   })
 
@@ -183,7 +296,10 @@ export const register: Register = (on, options) => {
 
   on('session.end', async ($, e, next) => {
     try {
-      await persist($, options, true)
+      // Files first; the POST gets what is left of the shared exit budget, 1.5s at most.
+      const budget = next.budget.remainingMs
+      const at = Date.now() + Math.max(0, Math.min(1_500, budget - 250))
+      await exportTrace($, options, 'final', { at, signal: next.signal })
     } catch {
       // nothing left to tell
     }
@@ -202,7 +318,8 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'profile-export' }, async $ => {
     try {
-      return { text: await persist($, options, true) }
+      const r = await exportTrace($, options, 'full')
+      return { text: [...r.notes, ...r.failures].join('\n') }
     } catch (error) {
       return { text: `export failed: ${String(error)}` }
     }

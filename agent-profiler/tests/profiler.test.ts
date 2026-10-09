@@ -150,3 +150,10 @@ test('version moves on every change and stays put on chunks that change nothing'
   expect(p.version).toBeGreaterThan(v1)
   expect(p.running(6)).toEqual([])
 })
+
+test('a profiler made before the session id was known adopts it once', () => {
+  const p = new Profiler()
+  p.adoptSessionId('abc')
+  p.adoptSessionId('other')
+  expect(p.snapshot(0).sessionId).toBe('abc')
+})

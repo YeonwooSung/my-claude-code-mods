@@ -21,6 +21,19 @@ export type OtlpRequest = {
 }
 type Attrs = Record<string, string | number | boolean | undefined>
 
+export type OtlpOptions = {
+  // Which records to emit, by recordKey(); a record's phase spans (ttft, exec, wait, ...) go with it. Default: all.
+  include?: (key: string) => boolean
+  // Emit the session root span. Default true; batches leave it to the final export.
+  root?: boolean
+}
+
+export type RecordKind = 'turn' | 'step' | 'tool' | 'agent'
+
+export function recordKey(kind: RecordKind, id: string): string {
+  return `${kind}:${id}`
+}
+
 const INTERNAL = 1
 const CLIENT = 3
 const STATUS_OK = 1
@@ -42,8 +55,10 @@ function attrs(values: Attrs): OtlpAttr[] {
   return out
 }
 
-export function toOtlp(s: Snapshot, version: string): OtlpRequest {
+export function toOtlp(s: Snapshot, version: string, options: OtlpOptions = {}): OtlpRequest {
   const traceId = traceIdFromSession(s.sessionId)
+  const include = options.include ?? (() => true)
+  const want = (kind: RecordKind, id: string) => include(recordKey(kind, id))
   const spans: OtlpSpan[] = []
   const end = (x: { end?: number }) => x.end ?? s.now
   const open = (x: { end?: number }) => (x.end === undefined ? true : undefined)
@@ -63,31 +78,43 @@ export function toOtlp(s: Snapshot, version: string): OtlpRequest {
     return id
   }
 
-  const sessionStart = [...s.turns, ...s.steps, ...s.tools, ...s.agents].reduce((min, x) => Math.min(min, x.start), s.now)
-  const root = add('session', s.sessionId, 'claude-code session', undefined, sessionStart, s.now, {
-    'session.id': s.sessionId,
-    'agent_profiler.observability': 'observed',
-  })
+  // Span ids are deterministic, so a span can name a parent emitted in another batch.
+  const root = spanId('session', s.sessionId)
+  if (options.root !== false) {
+    const sessionStart = [...s.turns, ...s.steps, ...s.tools, ...s.agents].reduce((min, x) => Math.min(min, x.start), s.started ?? s.now)
+    add('session', s.sessionId, 'claude-code session', undefined, sessionStart, s.now, {
+      'session.id': s.sessionId,
+      'agent_profiler.observability': 'observed',
+    })
+  }
 
-  const turnSpans = new Map<string, string>()
+  const mainTurns = new Set<string>()
   for (const t of s.turns) {
     if (t.ctx !== MAIN) continue
-    turnSpans.set(t.id, add('turn', t.id, 'turn', root, t.start, end(t), {
+    mainTurns.add(t.id)
+    if (!want('turn', t.id)) continue
+    add('turn', t.id, 'turn', root, t.start, end(t), {
       'agent_profiler.category': 'turn',
       'agent_profiler.observability': 'observed',
       'agent_profiler.turn.reason': t.reason,
       'agent_profiler.turn.prompt': t.prompt,
       'agent_profiler.incomplete': open(t),
-    }))
+    })
   }
 
-  // Span ids are deterministic, so parents can be named before they are emitted.
   const agents = new Set(s.agents.map(a => a.id))
   const tools = new Map(s.tools.map(t => [t.id, t]))
   const parentOf = (ctx: string, turnId?: string): string =>
-    ctx === MAIN ? (turnId !== undefined ? turnSpans.get(turnId) : undefined) ?? root : agents.has(ctx) ? spanId('agent', ctx) : root
+    ctx === MAIN
+      ? turnId !== undefined && mainTurns.has(turnId)
+        ? spanId('turn', turnId)
+        : root
+      : agents.has(ctx)
+        ? spanId('agent', ctx)
+        : root
 
   for (const a of s.agents) {
+    if (!want('agent', a.id)) continue
     const parentTool = a.parentToolId ? tools.get(a.parentToolId) : undefined
     add('agent', a.id, `invoke_agent ${a.agentType}`, parentTool ? spanId('tool', parentTool.id) : root, a.start, end(a), {
       'gen_ai.operation.name': 'invoke_agent',
@@ -101,6 +128,7 @@ export function toOtlp(s: Snapshot, version: string): OtlpRequest {
   }
 
   for (const x of s.steps) {
+    if (!want('step', x.id)) continue
     const ttft = x.firstContent !== undefined ? x.firstContent - x.start : undefined
     const id = add('step', x.id, `chat ${x.model}`, parentOf(x.ctx, x.turnId), x.start, end(x), {
       'gen_ai.operation.name': 'chat',
@@ -133,6 +161,7 @@ export function toOtlp(s: Snapshot, version: string): OtlpRequest {
   }
 
   for (const x of s.tools) {
+    if (!want('tool', x.id)) continue
     const wall = end(x) - x.start
     const exec = x.execMs !== undefined ? Math.min(x.execMs, wall) : undefined
     const wait = exec !== undefined ? wall - exec : undefined
@@ -141,7 +170,8 @@ export function toOtlp(s: Snapshot, version: string): OtlpRequest {
       'gen_ai.tool.name': x.tool,
       'gen_ai.tool.call.id': x.id,
       'gen_ai.agent.id': x.ctx === MAIN ? undefined : x.ctx,
-      'agent_profiler.category': isAgentTool(x.tool) ? 'subagent' : 'tool',
+      // An async Agent call returns at once and does not block the turn, as in summarize().
+      'agent_profiler.category': isAgentTool(x.tool) && x.launchedAsync !== true ? 'subagent' : 'tool',
       'agent_profiler.observability': 'observed',
       'agent_profiler.exec_ms': exec,
       'agent_profiler.wait_ms': wait,

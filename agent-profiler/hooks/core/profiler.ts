@@ -58,7 +58,7 @@ export function toolOutcome(answer: unknown): Outcome {
 }
 
 export class Profiler {
-  readonly sessionId: string
+  sessionId: string
   private readonly maxSpans: number
   private readonly turns = new Map<string, TurnRec>()
   private readonly steps = new Map<string, StepRec>()
@@ -78,6 +78,13 @@ export class Profiler {
   constructor(sessionId = 'unknown', maxSpans = 20_000) {
     this.sessionId = sessionId
     this.maxSpans = maxSpans
+  }
+
+  // A profiler created before the session id was known (a reload mid-session) takes it on later.
+  adoptSessionId(id: string): void {
+    if (this.sessionId !== 'unknown' || !id) return
+    this.sessionId = id
+    this.version += 1
   }
 
   turnStart(t: number, turnId: string, prompt = '', ctx = MAIN): void {
