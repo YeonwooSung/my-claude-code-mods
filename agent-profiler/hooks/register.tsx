@@ -1,6 +1,6 @@
 import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
-import { summarize } from './core/analyze.ts'
+import { summarize, type Scope, type Summary } from './core/analyze.ts'
 import { toOtlp } from './core/otlp.ts'
 import { Profiler, summarizeInput, toolOutcome } from './core/profiler.ts'
 import { paneLines, renderReport, statusLine } from './core/report.ts'
@@ -10,7 +10,9 @@ const PANE = 'agent-profiler'
 
 let profiler = new Profiler()
 let lastPaint = 0
+let paintQueuedAt = 0
 let anonymous = 0
+const summaries = new Map<Scope, { profiler: Profiler; version: number; sum: Summary }>()
 
 // Recording must never break the session: every bookkeeping step goes through here.
 function safe(fn: () => void): void {
@@ -21,14 +23,38 @@ function safe(fn: () => void): void {
   }
 }
 
-function paint($: EngineInterface, force = false): void {
+// The status line, the pane and the ticker share one summary per profiler version.
+function cachedSummary(scope: Scope = 'session'): Summary {
+  const hit = summaries.get(scope)
+  if (hit && hit.profiler === profiler && hit.version === profiler.version) return hit.sum
+  const sum = summarize(profiler.snapshot(Date.now()), scope)
+  summaries.set(scope, { profiler, version: profiler.version, sum })
+  return sum
+}
+
+function paintNow($: EngineInterface): void {
   const now = Date.now()
-  if (!force && now - lastPaint < 500) return
   lastPaint = now
   safe(() => {
-    $.ui.status(statusLine(summarize(profiler.snapshot(now)), profiler.running(now)))
+    $.ui.status(statusLine(cachedSummary(), profiler.running(now)))
     $.ui.invalidate('ui.render')
   })
+}
+
+// Hooks never paint on their own path: a paint is queued behind the event (at most one pending).
+function paint($: EngineInterface, force = false): void {
+  const now = Date.now()
+  if (paintQueuedAt && now - paintQueuedAt < 2_000) return // a refused timer must not block paints forever
+  if (!force && now - lastPaint < 500) return
+  paintQueuedAt = now
+  try {
+    $.clock.after(0, () => {
+      paintQueuedAt = 0
+      paintNow($)
+    })
+  } catch {
+    paintQueuedAt = 0
+  }
 }
 
 async function persist($: EngineInterface, options: PluginOptions, send: boolean): Promise<string> {
@@ -61,7 +87,7 @@ export const register: Register = (on, options) => {
     await $.command.register({ name: 'profile-pane', description: 'Open the live Agent Profiler pane' })
     await $.command.register({ name: 'profile-export', description: "Write this session's trace as OTLP JSON and send it to the configured endpoint" })
     $.clock.every(1_000, () => {
-      if (profiler.running(Date.now()).length > 0) paint($, true)
+      if (profiler.running(Date.now()).length > 0) paintNow($)
     })
     return next(e)
   })
@@ -184,8 +210,7 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
-    const now = Date.now()
-    const lines = paneLines(summarize(profiler.snapshot(now)), profiler.running(now), e.props.bodyColumns ?? 60)
+    const lines = paneLines(cachedSummary(), profiler.running(Date.now()), e.props.bodyColumns ?? 60)
     return (
       <Box flexDirection="column">
         {lines.map(line => (

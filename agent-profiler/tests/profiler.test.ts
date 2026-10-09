@@ -103,3 +103,19 @@ test('summarizeInput and toolOutcome read the engine shapes', () => {
   expect(toolOutcome({ deny: 'no' })).toEqual({ denied: true, isError: false, launchedAgentId: undefined, launchedAsync: false })
   expect(toolOutcome(undefined)).toEqual({ denied: false, isError: false, launchedAgentId: undefined, launchedAsync: false })
 })
+
+test('version moves on every change and stays put on chunks that change nothing', () => {
+  const p = new Profiler('s')
+  const v0 = p.version
+  p.turnStart(0, 't')
+  const step = p.stepStart(1, { turnId: 't', index: 0, model: 'm' })
+  p.stepChunk(2, step, 'text')
+  const v1 = p.version
+  expect(v1).toBeGreaterThan(v0)
+  p.stepChunk(3, step, 'text')
+  p.stepChunk(4, step, 'tool')
+  expect(p.version).toBe(v1)
+  p.stepEnd(5, step)
+  expect(p.version).toBeGreaterThan(v1)
+  expect(p.running(6)).toEqual([])
+})

@@ -66,7 +66,12 @@ export class Profiler {
   private readonly agents = new Map<string, AgentRec>()
   private readonly openTurns = new Map<string, string[]>()
   private readonly pendingExec = new Map<string, number>()
+  private readonly openSteps = new Set<string>()
+  private readonly openTools = new Set<string>()
+  private readonly openAgents = new Set<string>()
   private dropped = 0
+  // Bumped on every change, so callers can cache what they derive from a snapshot.
+  version = 0
 
   constructor(sessionId = 'unknown', maxSpans = 20_000) {
     this.sessionId = sessionId
@@ -77,6 +82,7 @@ export class Profiler {
     if (this.turns.has(turnId)) return
     this.turns.set(turnId, { id: turnId, ctx, start: t, prompt: prompt.slice(0, 120) })
     this.stack(ctx).push(turnId)
+    this.version += 1
   }
 
   turnComplete(t: number, turnId: string, reason?: string): void {
@@ -85,6 +91,7 @@ export class Profiler {
     if (turn.end === undefined) turn.end = t
     if (reason !== undefined) turn.reason = reason
     this.unstack(turn.ctx, turnId)
+    this.version += 1
   }
 
   stepStart(t: number, args: { turnId: string; index: number; model: string; effort?: string | number; agentId?: string }): string {
@@ -103,6 +110,8 @@ export class Profiler {
     const step: StepRec = { id, ctx, turnId: args.turnId, index: args.index, model: args.model, start: t }
     if (args.effort !== undefined) step.effort = String(args.effort)
     this.steps.set(id, step)
+    this.openSteps.add(id)
+    this.version += 1
     this.trim()
     return id
   }
@@ -110,13 +119,15 @@ export class Profiler {
   stepChunk(t: number, stepId: string, kind: string): void {
     const step = this.steps.get(stepId)
     if (!step || step.end !== undefined || kind === 'engine' || kind === 'stop') return
+    if (kind !== 'thinking' && step.outFirst !== undefined) return
     if (step.firstContent === undefined) step.firstContent = t
     if (kind === 'thinking') {
       if (step.thinkFirst === undefined) step.thinkFirst = t
       step.thinkLast = t
-    } else if (step.outFirst === undefined) {
+    } else {
       step.outFirst = t
     }
+    this.version += 1
   }
 
   stepUsage(stepId: string, usage: Usage | null | undefined, stopReason?: string | null): void {
@@ -124,11 +135,15 @@ export class Profiler {
     if (!step) return
     if (usage) step.usage = { ...usage }
     if (stopReason) step.stopReason = stopReason
+    this.version += 1
   }
 
   stepEnd(t: number, stepId: string): void {
     const step = this.steps.get(stepId)
-    if (step && step.end === undefined) step.end = t
+    if (!step || step.end !== undefined) return
+    step.end = t
+    this.openSteps.delete(stepId)
+    this.version += 1
   }
 
   toolStart(t: number, args: { id: string; tool: string; agentId?: string; input: ToolInputSummary }): void {
@@ -143,25 +158,33 @@ export class Profiler {
       this.pendingExec.delete(args.id)
     }
     this.tools.set(args.id, tool)
+    this.openTools.add(args.id)
+    this.version += 1
     this.trim()
   }
 
   toolCheck(id: string, decision: string): void {
     const tool = this.tools.get(id)
-    if (tool) tool.decision = decision
+    if (!tool) return
+    tool.decision = decision
+    this.version += 1
   }
 
   toolDuration(id: string, ms: unknown): void {
     if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return
     const tool = this.tools.get(id)
-    if (tool) tool.execMs = ms
-    else if (this.pendingExec.size < 1_000) this.pendingExec.set(id, ms)
+    if (tool) {
+      tool.execMs = ms
+      this.version += 1
+    } else if (this.pendingExec.size < 1_000) this.pendingExec.set(id, ms)
   }
 
   toolEnd(t: number, id: string, outcome: Outcome): void {
     const tool = this.tools.get(id)
     if (!tool || tool.end !== undefined) return
     tool.end = t
+    this.openTools.delete(id)
+    this.version += 1
     tool.denied = outcome.denied
     tool.isError = outcome.isError
     if (outcome.launchedAgentId) {
@@ -185,25 +208,33 @@ export class Profiler {
     const agent: AgentRec = { id: agentId, agentType, start: t }
     if (parent) agent.parentToolId = parent.id
     this.agents.set(agentId, agent)
+    this.openAgents.add(agentId)
+    this.version += 1
   }
 
   subagentStop(t: number, agentId: string): void {
     const agent = this.agents.get(agentId)
     if (!agent) return
     if (agent.end === undefined) agent.end = t
+    this.openAgents.delete(agentId)
+    this.version += 1
     for (const turnId of [...(this.openTurns.get(agentId) ?? [])]) this.turnComplete(t, turnId, 'agent-stop')
   }
 
   running(now: number): RunningItem[] {
+    // Walks only the open spans, so the once-a-second ticker stays cheap however long the session.
     const items: RunningItem[] = []
-    for (const step of this.steps.values()) {
-      if (step.end === undefined) items.push({ kind: 'model', label: `model ${step.model}`, ctx: step.ctx, ms: now - step.start })
+    for (const id of this.openSteps) {
+      const step = this.steps.get(id)
+      if (step) items.push({ kind: 'model', label: `model ${step.model}`, ctx: step.ctx, ms: now - step.start })
     }
-    for (const tool of this.tools.values()) {
-      if (tool.end === undefined) items.push({ kind: 'tool', label: toolLabel(tool), ctx: tool.ctx, ms: now - tool.start })
+    for (const id of this.openTools) {
+      const tool = this.tools.get(id)
+      if (tool) items.push({ kind: 'tool', label: toolLabel(tool), ctx: tool.ctx, ms: now - tool.start })
     }
-    for (const agent of this.agents.values()) {
-      if (agent.end === undefined) items.push({ kind: 'agent', label: `agent ${agent.agentType}`, ctx: agent.id, ms: now - agent.start })
+    for (const id of this.openAgents) {
+      const agent = this.agents.get(id)
+      if (agent) items.push({ kind: 'agent', label: `agent ${agent.agentType}`, ctx: agent.id, ms: now - agent.start })
     }
     return items.sort((a, b) => b.ms - a.ms)
   }

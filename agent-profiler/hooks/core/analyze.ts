@@ -64,25 +64,46 @@ export function unionLength(intervals: Interval[]): number {
   return total
 }
 
-// Splits a window into elementary segments and gives each to the highest-priority category active in it.
+// Sweep line over the window: at every moment the highest-priority active category gets the time,
+// and moments with nothing active are engine time. O(n log n) in the number of intervals.
 export function attribute(window: Interval, tagged: { cat: Category; iv: Interval }[]): Record<Category, number> {
   const out: Record<Category, number> = { model: 0, subagent: 0, tool: 0, engine: 0 }
   const [w0, w1] = window
   if (w1 <= w0) return out
-  const clipped = tagged
-    .map(x => ({ cat: x.cat, a: Math.max(w0, x.iv[0]), b: Math.min(w1, x.iv[1]) }))
-    .filter(x => x.b > x.a)
-  const cuts = [...new Set([w0, w1, ...clipped.flatMap(x => [x.a, x.b])])].sort((a, b) => a - b)
-  for (let i = 0; i + 1 < cuts.length; i += 1) {
-    const a = cuts[i]
-    const b = cuts[i + 1]
-    const active = new Set(clipped.filter(x => x.a <= a && x.b >= b).map(x => x.cat))
-    out[PRIORITY.find(cat => active.has(cat)) ?? 'engine'] += b - a
+  const events: { t: number; d: number; cat: Category }[] = []
+  for (const x of tagged) {
+    const a = Math.max(w0, x.iv[0])
+    const b = Math.min(w1, x.iv[1])
+    if (b > a) events.push({ t: a, d: 1, cat: x.cat }, { t: b, d: -1, cat: x.cat })
+  }
+  events.sort((p, q) => p.t - q.t)
+  const active: Record<Category, number> = { model: 0, subagent: 0, tool: 0, engine: 0 }
+  const top = (): Category => PRIORITY.find(cat => active[cat] > 0) ?? 'engine'
+  let at = w0
+  for (const ev of events) {
+    if (ev.t > at) {
+      out[top()] += ev.t - at
+      at = ev.t
+    }
+    active[ev.cat] += ev.d
+  }
+  if (w1 > at) out[top()] += w1 - at
+  return out
+}
+
+function groupBy<T>(items: T[], key: (item: T) => string | undefined): Map<string, T[]> {
+  const out = new Map<string, T[]>()
+  for (const item of items) {
+    const k = key(item)
+    if (k === undefined) continue
+    const list = out.get(k)
+    if (list) list.push(item)
+    else out.set(k, [item])
   }
   return out
 }
 
-function scopeAgents(s: Snapshot, mainTools: ToolRec[], scope: Scope): Set<string> {
+function scopeAgents(s: Snapshot, mainTools: ToolRec[], scope: Scope, toolById: Map<string, ToolRec>): Set<string> {
   if (scope === 'session') return new Set(s.agents.map(a => a.id))
   const toolIds = new Set(mainTools.map(t => t.id))
   const ids = new Set<string>()
@@ -90,7 +111,7 @@ function scopeAgents(s: Snapshot, mainTools: ToolRec[], scope: Scope): Set<strin
     grew = false
     for (const agent of s.agents) {
       if (ids.has(agent.id) || !agent.parentToolId) continue
-      const parent = s.tools.find(t => t.id === agent.parentToolId)
+      const parent = toolById.get(agent.parentToolId)
       if (toolIds.has(agent.parentToolId) || (parent && ids.has(parent.ctx))) {
         ids.add(agent.id)
         grew = true
@@ -107,21 +128,25 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
   const turnIds = new Set(mainTurns.map(t => t.id))
   const inScope = (turnId: string | undefined) => scope === 'session' || (turnId !== undefined && turnIds.has(turnId))
   const mainTools = s.tools.filter(t => t.ctx === MAIN && inScope(t.turnId))
-  const agentIds = scopeAgents(s, mainTools, scope)
+  const toolById = new Map(s.tools.map(t => [t.id, t]))
+  const agentIds = scopeAgents(s, mainTools, scope, toolById)
   const steps = s.steps.filter(x => (x.ctx === MAIN ? inScope(x.turnId) : agentIds.has(x.ctx)))
   const tools = [...mainTools, ...s.tools.filter(x => x.ctx !== MAIN && agentIds.has(x.ctx))]
   const agents = s.agents.filter(a => agentIds.has(a.id))
 
+  const stepsByTurn = groupBy(steps, x => (x.ctx === MAIN ? x.turnId : undefined))
+  const toolsByTurn = groupBy(mainTools, x => x.turnId)
   const exclusive: Record<Category, number> = { model: 0, subagent: 0, tool: 0, engine: 0 }
   let wallMs = 0
   for (const turn of mainTurns) {
     const window: Interval = [turn.start, end(turn)]
     wallMs += window[1] - window[0]
     const tagged = [
-      ...steps.filter(x => x.ctx === MAIN && x.turnId === turn.id).map(x => ({ cat: 'model' as Category, iv: [x.start, end(x)] as Interval })),
-      ...mainTools
-        .filter(x => x.turnId === turn.id)
-        .map(x => ({ cat: (isAgentTool(x.tool) && x.launchedAsync !== true ? 'subagent' : 'tool') as Category, iv: [x.start, end(x)] as Interval })),
+      ...(stepsByTurn.get(turn.id) ?? []).map(x => ({ cat: 'model' as Category, iv: [x.start, end(x)] as Interval })),
+      ...(toolsByTurn.get(turn.id) ?? []).map(x => ({
+        cat: (isAgentTool(x.tool) && x.launchedAsync !== true ? 'subagent' : 'tool') as Category,
+        iv: [x.start, end(x)] as Interval,
+      })),
     ]
     const part = attribute(window, tagged)
     for (const cat of Object.keys(part) as Category[]) exclusive[cat] += part[cat]
@@ -192,6 +217,8 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
     }
   }
 
+  const stepsByCtx = groupBy(s.steps, x => x.ctx)
+  const toolsByCtx = groupBy(s.tools, x => x.ctx)
   const summary: Summary = {
     scope,
     turns: mainTurns.length,
@@ -231,16 +258,17 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
       .map(({ path, reads, redundant }) => ({ path, reads, redundant })),
     agents: agents
       .map(agent => {
-        const parent = agent.parentToolId ? s.tools.find(t => t.id === agent.parentToolId) : undefined
-        const own = (x: { ctx: string }) => x.ctx === agent.id
+        const parent = agent.parentToolId ? toolById.get(agent.parentToolId) : undefined
+        const ownSteps = stepsByCtx.get(agent.id) ?? []
+        const ownTools = toolsByCtx.get(agent.id) ?? []
         return {
           id: agent.id,
           agentType: agent.agentType,
           wallMs: end(agent) - agent.start,
-          modelMs: unionLength(s.steps.filter(own).map(x => [x.start, end(x)] as Interval)),
-          toolMs: unionLength(s.tools.filter(own).map(x => [x.start, end(x)] as Interval)),
-          requests: s.steps.filter(own).length,
-          tools: s.tools.filter(own).length,
+          modelMs: unionLength(ownSteps.map(x => [x.start, end(x)] as Interval)),
+          toolMs: unionLength(ownTools.map(x => [x.start, end(x)] as Interval)),
+          requests: ownSteps.length,
+          tools: ownTools.length,
           blocking: parent !== undefined && parent.launchedAsync !== true,
           done: agent.end !== undefined,
         }
