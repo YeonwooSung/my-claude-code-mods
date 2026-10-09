@@ -60,15 +60,24 @@ export function advise(input: AdviceInput): Advice[] {
       savings: rereadFiles.reduce((s, f) => s + f.wasteEst, 0),
     })
 
-  const bigReads = items.filter(i => i.category === 'Read' && i.target?.full === true && est(i) >= 8_000).sort((a, b) => b.est - a.est)
-  if (bigReads.length > 0)
+  const bigReads = items.filter(i => i.category === 'Read' && i.target?.full === true && est(i) >= 8_000 && !rereads.wasteSeqs.has(i.seq))
+  if (bigReads.length > 0) {
+    const byPath = new Map<string, { count: number; total: number }>()
+    for (const i of bigReads) {
+      const g = byPath.get(i.target!.value) ?? { count: 0, total: 0 }
+      g.count += 1
+      g.total += est(i)
+      byPath.set(i.target!.value, g)
+    }
+    const groups = [...byPath.entries()].sort((x, y) => y[1].total - x[1].total)
     push({
       id: 'large-read',
       title: 'Whole large files read into context',
-      evidence: list(bigReads, i => `${base(i.target!.value)} (${tok(est(i))})`),
+      evidence: list(groups, ([path, g]) => `${base(path)}${g.count > 1 ? ` ×${g.count}` : ''} (${tok(g.total)})`),
       action: 'Grep for the symbol first, then Read with offset/limit',
       savings: bigReads.reduce((s, i) => s + est(i) - 2_000, 0),
     })
+  }
 
   const bigBash = items.filter(i => i.category === 'Bash' && est(i) >= 5_000).sort((a, b) => b.est - a.est)
   if (bigBash.length > 0)

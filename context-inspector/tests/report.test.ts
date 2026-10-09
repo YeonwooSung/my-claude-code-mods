@@ -39,6 +39,19 @@ test('advice fires for unchanged re-reads, large whole reads, long output and re
   expect([...ranks].sort((a, b) => a - b)).toEqual(ranks)
 })
 
+test('large-read skips re-reads already counted as waste, and groups repeated whole reads by file', () => {
+  const lr = summarize(busy().snapshot(), 'main').advice.find(a => a.id === 'large-read')!
+  expect(lr.evidence).toBe('big.ts (≈10.0k)')
+  expect(lr.savings).toBe(8_000)
+
+  const l = new Ledger()
+  readFile(l, 'r1', '/src/big.ts', 'x'.repeat(40_000))
+  readFile(l, 'r2', '/src/big.ts', 'y'.repeat(40_000)) // different content: not an unchanged re-read
+  const two = summarize(l.snapshot(), 'main').advice.find(a => a.id === 'large-read')!
+  expect(two.evidence).toBe('big.ts ×2 (≈20.0k)')
+  expect(two.savings).toBe(16_000)
+})
+
 test('advice from a breakdown: idle MCP servers and large memory files', () => {
   const l = new Ledger()
   runBash(l, 'b', 'ls', 'a')
