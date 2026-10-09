@@ -8,10 +8,10 @@ export const MAX_EXPORT_BYTES = Math.floor(3.5 * 1024 * 1024)
 
 export type ExportMeta = { sessionId: string; version: string; at: string }
 
-// Paths and agent names stay; command lines, patterns and URLs are redacted and cut to 200 characters.
+// Paths stay; everything else (agent names from descriptions, command lines, patterns and URLs) is redacted and cut to 200 characters.
 function exportTarget(t: Target | undefined): Target | undefined {
   if (!t) return undefined
-  const value = t.kind === 'file' || t.kind === 'agent' ? t.value : redactSecrets(t.value).slice(0, 200)
+  const value = t.kind === 'file' ? t.value : redactSecrets(t.value).slice(0, 200)
   return { ...t, value }
 }
 
