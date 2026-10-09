@@ -25,3 +25,55 @@ test('compound commands take the most expensive segment', () => {
   expect(classifyCommand('npm ci && npm test')).toBe('test')
   expect(classifyCommand('ls | grep foo')).toBe('search')
 })
+
+test('runner names must match at command position only', () => {
+  expect(classifyCommand('npm install --save-dev vitest')).toBe('install')
+  expect(classifyCommand('pip install pytest')).toBe('install')
+  expect(classifyCommand('git add vitest.config.ts')).toBe('git')
+  expect(classifyCommand('rg jest src')).toBe('search')
+  expect(classifyCommand('cat jest.config.js')).toBe('search')
+  expect(classifyCommand('git commit -m "fix pytest flake"')).toBe('git')
+})
+
+test('splitting respects quotes and heredocs', () => {
+  expect(classifyCommand('git commit -m "a && npm test"')).toBe('git')
+  expect(classifyCommand('git commit -m "$(cat <<\'EOF\'\nrun pytest\nEOF\n)"')).toBe('git')
+  expect(classifyCommand('echo hi\ngit status')).toBe('git')
+})
+
+test('false negatives fixed', () => {
+  expect(classifyCommand('pnpm -r test')).toBe('test')
+  expect(classifyCommand('pnpm --filter web test')).toBe('test')
+  expect(classifyCommand('npm t')).toBe('test')
+  expect(classifyCommand('python -m unittest')).toBe('test')
+  expect(classifyCommand('python -m pytest -q')).toBe('test')
+  expect(classifyCommand('cargo nextest run')).toBe('test')
+  expect(classifyCommand('npx vitest run')).toBe('test')
+  expect(classifyCommand('npx jest')).toBe('test')
+})
+
+test('gradle/mvn distinguish build from test', () => {
+  expect(classifyCommand('./gradlew build -x test')).toBe('build')
+  expect(classifyCommand('mvn package -Dmaven.test.skip=true')).toBe('build')
+  expect(classifyCommand('./gradlew test')).toBe('test')
+  expect(classifyCommand('mvn test')).toBe('test')
+})
+
+test('env assignments and wrappers stripped', () => {
+  expect(classifyCommand('npx tsc')).toBe('build')
+  expect(classifyCommand('FOO=1 git status')).toBe('git')
+  expect(classifyCommand('time npm test')).toBe('test')
+  expect(classifyCommand('yarn')).toBe('install')
+  expect(classifyCommand('env FOO=bar npm test')).toBe('test')
+  expect(classifyCommand('sudo apt-get install curl')).toBe('install')
+  expect(classifyCommand('poetry run pytest')).toBe('test')
+  expect(classifyCommand('pnpm exec vitest')).toBe('test')
+  expect(classifyCommand('yarn dlx tsc')).toBe('build')
+  expect(classifyCommand('uv run python -m pytest')).toBe('test')
+})
+
+test('non-string input returns other', () => {
+  expect(classifyCommand(undefined as unknown as string)).toBe('other')
+  expect(classifyCommand(null as unknown as string)).toBe('other')
+  expect(classifyCommand(123 as unknown as string)).toBe('other')
+})
