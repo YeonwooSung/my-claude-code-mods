@@ -7,6 +7,7 @@ import { Ledger } from '../hooks/core/ledger.ts'
 import { paneLines, parseArgs, renderReport, statusLine } from '../hooks/core/report.ts'
 import { summarize } from '../hooks/core/summary.ts'
 import { okLines, promptRow, readFile, runBash } from './fixtures.ts'
+import type { NewItem } from '../hooks/core/ledger.ts'
 
 function busy(): Ledger {
   const l = new Ledger()
@@ -162,4 +163,27 @@ test('waste in the window vs session cost: a compaction that drops every copy ze
   const advice = s.advice.find(a => a.id === 'reread-unchanged')!
   expect(advice.savings).toBe(20_000)
   expect(advice.title).toBe('Unchanged files were read again while the earlier copy was still in context')
+})
+
+test('k stays the same after the ledger trims the items of an earlier calibration span', () => {
+  const l = new Ledger(10)
+  let n = 0
+  const add = (ctx: string, est: number): void => {
+    n += 1
+    const item: NewItem = { uuid: `u${n}`, row: `u${n}`, ctx, door: 'tool-result', category: 'Bash', chars: est * 4, est, hash: `h${n}` }
+    l.add(item)
+  }
+  l.sample('main', 10_000)
+  for (let i = 0; i < 4; i += 1) add('main', 1_000)
+  l.sample('main', 16_000) // 6,000 over 4,000 → 1.5
+  l.sample('a1', 5_000)
+  for (let i = 0; i < 4; i += 1) add('a1', 1_000)
+  l.sample('a1', 11_000) // 6,000 over 4,000 → 1.5
+  const before = summarize(l.snapshot(), 'all')
+  expect([before.k, before.segments]).toEqual([1.5, 2])
+  for (let i = 0; i < 3; i += 1) add('a2', 10) // the 11th item trims the two oldest (main) items
+  expect(l.droppedLive).toBe(2)
+  expect(l.snapshot().trimmedThrough).toBe(3)
+  const after = summarize(l.snapshot(), 'all')
+  expect([after.k, after.segments]).toEqual([1.5, 1])
 })

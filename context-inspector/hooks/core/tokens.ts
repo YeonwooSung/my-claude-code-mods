@@ -20,8 +20,9 @@ export type Calibration = { k: number; segments: number }
 
 // Per context and epoch, the measured growth between its first and last request over the estimated
 // tokens of the items that arrived in between. Telescoping makes the order of rows and stop chunks
-// inside the segment irrelevant.
-export function calibrate(samples: readonly Sample[], items: readonly Pick<ContextItem, 'ctx' | 'seq' | 'est'>[]): Calibration {
+// inside the segment irrelevant. A span whose first sample precedes `trimmedThrough` may have lost
+// items to the ledger cap, so it is skipped.
+export function calibrate(samples: readonly Sample[], items: readonly Pick<ContextItem, 'ctx' | 'seq' | 'est'>[], trimmedThrough = 0): Calibration {
   const spans = new Map<string, { a: Sample; b: Sample }>()
   for (const s of samples) {
     const key = `${s.ctx}\u0000${s.epoch}`
@@ -33,7 +34,7 @@ export function calibrate(samples: readonly Sample[], items: readonly Pick<Conte
   let est = 0
   let segments = 0
   for (const { a, b } of spans.values()) {
-    if (b.seq === a.seq || b.input <= a.input) continue
+    if (b.seq === a.seq || b.input <= a.input || a.seq < trimmedThrough) continue
     let sum = 0
     for (const item of items) if (item.ctx === a.ctx && item.seq > a.seq && item.seq <= b.seq) sum += item.est
     if (sum < MIN_SEGMENT_EST) continue

@@ -21,6 +21,8 @@ export class Ledger {
   turn = 0
   dropped = 0
   droppedLive = 0
+  // The largest seq of any item trim removed; 0 until the cap is first reached.
+  trimmedThrough = 0
   // One counter orders items, edits, samples and compactions.
   private seq = 0
   private items: ContextItem[] = []
@@ -156,6 +158,7 @@ export class Ledger {
       turn: this.turn,
       dropped: this.dropped,
       droppedLive: this.droppedLive,
+      trimmedThrough: this.trimmedThrough,
     }
   }
 
@@ -166,6 +169,7 @@ export class Ledger {
     for (const item of this.items) {
       if (excess > 0 && !item.live) {
         this.byUuid.delete(item.uuid)
+        this.trimmedThrough = Math.max(this.trimmedThrough, item.seq)
         this.dropped += 1
         excess -= 1
       } else {
@@ -175,6 +179,7 @@ export class Ledger {
     if (excess > 0) {
       for (const item of keep.splice(0, excess)) {
         this.byUuid.delete(item.uuid)
+        this.trimmedThrough = Math.max(this.trimmedThrough, item.seq)
         this.droppedLive += 1
       }
     }

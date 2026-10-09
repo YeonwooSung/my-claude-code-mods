@@ -75,6 +75,17 @@ test('calibrate telescopes per context and epoch, skips thin segments, clamps', 
   expect(calibrate([sample(1, 10_000, 0), sample(4, 13_300, 1)], items).segments).toBe(0)
 })
 
+test('calibrate skips spans that began before the ledger trimmed items', () => {
+  const items = [
+    { ctx: 'main', seq: 3, est: 2_000 },
+    { ctx: 'a1', seq: 8, est: 2_000 },
+  ]
+  // main span 1..4 lost an item at seq 2 to a trim (trimmedThrough 2): only the a1 span counts
+  const samples = [sample(1, 10_000), sample(4, 16_000), sample(7, 1_000, 0, 'a1'), sample(9, 4_000, 0, 'a1')]
+  expect(calibrate(samples, items)).toEqual({ k: 2, segments: 2 })
+  expect(calibrate(samples, items, 2)).toEqual({ k: 1.5, segments: 1 })
+})
+
 test('diffLines drops shared head and tail lines', () => {
   expect(diffLines('a\nb\nc', 'a\nB\nc')).toBe(2)
   expect(diffLines('', 'x\ny')).toBe(2)

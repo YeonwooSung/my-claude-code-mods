@@ -34,7 +34,7 @@ export function summarize(s: Snapshot, scope: Scope, breakdown?: BreakdownLite):
   const inScope = (ctx: string): boolean => scope === 'all' || ctx === MAIN
   const items = s.items.filter(i => inScope(i.ctx))
   // Calibration uses every context: more segments, and k is a property of the tokenizer, not the scope.
-  const { k, segments } = calibrate(s.samples, s.items)
+  const { k, segments } = calibrate(s.samples, s.items, s.trimmedThrough)
   const rr = rereads(items, s.edits, k)
   const sim = similar(items, k, rr.wasteSeqs)
   const comps = compactionViews(s.compactions.filter(c => inScope(c.ctx)), rr.rows, k)

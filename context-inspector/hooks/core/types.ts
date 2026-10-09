@@ -69,4 +69,6 @@ export type Snapshot = {
   turn: number
   dropped: number
   droppedLive: number
+  // The largest seq of any item the ledger trimmed (0 when never trimmed): spans starting before it are incomplete.
+  trimmedThrough: number
 }
