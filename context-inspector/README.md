@@ -19,7 +19,7 @@ Claude Code 2.1.287 이상(mods 기본 활성화). 그보다 오래된 빌드는
 | `/context-pane` | 실시간 패널(터미널, 데스크톱 앱) |
 | `/context-export` | 원문 없이 메타데이터만 JSONL로 저장: `<outputDir>/<sessionId>/context-<load>-<n>.jsonl` |
 
-상태줄: `ctx 62% · waste≈8.1k` (창 점유율은 측정값, 낭비는 추정).
+상태줄: `ctx 62% · waste≈8.1k` (창 점유율은 측정값, 낭비는 추정). waste는 **지금 창에 남아 있는** 낭비다 — 컴팩션이 중복 사본을 지우면 줄어든다. 세션 전체의 재읽기 비용은 `/context-inspect rereads`의 `session ≈…`에 남는다.
 
 ## 무엇을 재는가 — 관찰 가능성 등급
 
@@ -27,7 +27,7 @@ Claude Code 2.1.287 이상(mods 기본 활성화). 그보다 오래된 빌드는
 |---|---|
 | measured | 요청마다 API가 보고한 입력 토큰(uncached + cache read + cache write), 컴팩션 전/후 토큰 |
 | observed | 대화에 들어온 행의 문자 수·해시, 컴팩션 전/후 메시지 집합 |
-| estimated (`≈`) | 항목별 토큰 = 문자 수/4(이미지 1,500) × 보정 계수 k (측정된 입력 증가량으로 0.5–2.0 사이에서 보정) |
+| estimated (`≈`) | 항목별 토큰 = 문자 수/4(이미지 1,500) × 보정 계수 k (측정된 입력 증가량으로 0.5–2.0 사이에서 보정; 한계에 걸리면 보고서에 `(clamped)`) |
 
 모델 내부의 토큰별 주의(attention)나 정확한 점유율은 외부에서 보이지 않으므로 주장하지 않는다.
 
@@ -50,7 +50,8 @@ Claude Code 2.1.287 이상(mods 기본 활성화). 그보다 오래된 빌드는
 ## 내보내기 형식
 
 한 줄에 JSON 하나: `meta`, `item`(seq, ctx, turn, door, category, target, chars, est, hash, simhash, born, epoch, live …), `edit`, `sample`, `compaction`, `summary`.
-원문은 없다. 명령·패턴·URL 대상은 비밀값 마스킹 후 200자로 자른다. 컴팩션 엔티티 중 오류와 사용자 식별자는 해시만 남는다.
+원문은 없다. 명령·패턴·URL 대상은 비밀값 마스킹 후 200자로 자른다. 컴팩션 엔티티 중 오류와 사용자 식별자, 그리고 항목 내용은 해시(솔트 없음, 짧은 값은 추측으로 확인 가능)로만 남는다 — 익명화가 아니다.
+`summary`에는 `wasteEst`(지금 창), `currentWasteEst`·`sessionRereadEst`(재읽기 낭비: 지금 창 / 세션 누적)가 함께 들어간다.
 
 ## 실행 환경
 
@@ -62,14 +63,15 @@ Claude Code 2.1.287 이상(mods 기본 활성화). 그보다 오래된 빌드는
 
 ## 한계
 
-- 리로드·재개 시 `$.session.messages()`로 메인 대화만 복구한다(attachment, 서브에이전트, 시간 정보 없음).
-- 복구는 세션 시작 후 한 번, 지연 실행되며 아직 아무것도 기록되지 않았을 때만 돈다. 그 전에 기록된 행이 있으면 리로드 이전 이력은 읽어 오지 않는다.
+- 리로드·재개·`/clear` 시 원장을 비우고 `$.session.messages()`로 메인 대화만 복구한다(attachment, 서브에이전트, 시간 정보 없음). `/clear`는 `session.start` 없이 `session.end`(reason `clear`)로 알아챈다.
+- 복구는 그 뒤 한 번, 지연 실행되며 아직 prompt/response가 기록되지 않았을 때만 돈다. 그 전에 먼저 들어온 도구 결과는 tool_use_id로 알아보고 다시 넣지 않는다.
 - 복구된 prompt/response 항목에는 엔진 핸들이 없다(`$.session.messages()`가 주지 않는다). 그래서 리로드 후 첫 컴팩션은 이들을 전부 "버려진 것"으로 센다. 도구 결과는 tool_use_id로 계속 대응된다.
 - 원장 상한 20,000 항목(넘치면 창 밖 항목부터 버림).
 - 컴팩션 보존 판정은 문자열 포함 여부다(파일은 basename도 인정) — 요약이 다른 말로 바꿔 쓴 것은 잃은 것으로 센다.
 - 유사도 버킷은 밴드 값마다 서로 다른 대표를 최대 256개까지만 보관·비교한다(수천 개의 거의 같은 출력도 대표끼리는 묶인다).
 - 내보내기 파일 이름은 항상 `-<n>`으로 끝난다(파일 하나면 `context-<load>-1.jsonl`). 같은 로드 안에서 `/context-export`를 다시 실행하면 그 로드의 파일을 전체 새 스냅샷으로 덮어쓴다.
-- large-read·large-bash·agent-verbose 같은 추천은 세션에서 일어난 모든 일을 대상으로 하며, 이후 컴팩션이 지운 출력도 포함한다.
+- large-read·large-bash·agent-verbose·reread-unchanged 같은 추천은 세션에서 일어난 모든 일을 대상으로 하며(습관 추천), 이후 컴팩션이 지운 출력도 포함한다. 상태줄의 waste와는 다르다.
+- 원장이 상한에 닿아 항목을 버리면, 버린 항목에 걸친 보정 구간은 k 계산에서 뺀다.
 
 ## 개발
 

@@ -21,6 +21,9 @@ export function parseArgs(args: string): { section: Section; scope: Scope; unkno
   return { section: 'overview', scope, unknown: first }
 }
 
+// k at a bound of calibrate's clamp: the measured ratio lies beyond it.
+const clamped = (sum: Summary): boolean => sum.segments > 0 && (sum.k === 0.5 || sum.k === 2)
+
 function header(sum: Summary, usage?: UsageLite): string[] {
   const where = sum.scope === 'main' ? 'main context' : 'main + subagents'
   const window =
@@ -28,7 +31,7 @@ function header(sum: Summary, usage?: UsageLite): string[] {
   const lines = [
     `Context Inspector — ${where}${window}`,
     `Live ${tok(sum.occupancy.liveEst)} tokens in ${sum.occupancy.liveItems} items · ${sum.turns} turn(s) · ${sum.compactions.length} compaction(s) · waste ${tok(sum.wasteEst)}`,
-    `≈ = estimate (chars/4 × k=${sum.k.toFixed(2)}, ${sum.segments} calibration segment(s)); figures without ≈ are measured or engine-reported`,
+    `≈ = estimate (chars/4 × k=${sum.k.toFixed(2)}${clamped(sum) ? ' (clamped)' : ''}, ${sum.segments} calibration segment(s)); figures without ≈ are measured or engine-reported`,
   ]
   if (sum.dropped + sum.droppedLive > 0) lines.push(`(ledger cap reached: ${sum.dropped} old and ${sum.droppedLive} live items dropped)`)
   return lines

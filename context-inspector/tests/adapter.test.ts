@@ -85,3 +85,27 @@ test('session.end after /clear resets the ledger and relays the result unchanged
   const after = String((await $.command.run({ command: 'context-inspect', args: 'compactions' } as never)).text)
   expect(after).toContain('none yet')
 })
+
+test('a turn.step stop chunk with usage records a measured request', async ($, on) => {
+  on('session.messages', () => ({ value: [] }))
+  on('session.end', () => ({ sessionId: 'old' }))
+  const usage = { input_tokens: 500, output_tokens: 2, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'm' }
+  on('turn.step', async function* () {
+    yield { kind: 'stop', stopReason: 'end_turn', usage }
+    return { turnId: 't1', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage }
+  })
+  await $.session.end(endClear)
+  const empty = String((await $.command.run({ command: 'context-inspect', args: 'efficiency' } as never)).text)
+  expect(empty).toContain('no measured requests yet')
+  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'm', messageCount: 1 })) void _
+  const text = String((await $.command.run({ command: 'context-inspect', args: 'efficiency' } as never)).text)
+  expect(text).not.toContain('no measured requests yet')
+  expect(text).toContain('1 turn(s)')
+})
+
+test('/context-inspect answers with the error when the report fails', async ($, on) => {
+  // a memory file without a path makes the advice rules throw
+  on('session.usage', () => ({ value: { context: { percent: 1, tokens: 10, window: 100, breakdown: { mcpTools: [], memoryFiles: [{ tokens: 9_000 }] } } } }) as never)
+  const answer = await $.command.run({ command: 'context-inspect', args: 'advice' } as never)
+  expect(String(answer.text)).toMatch(/^context-inspector: report failed: /)
+})

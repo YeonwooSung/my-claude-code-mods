@@ -94,6 +94,8 @@ function paint($: EngineInterface, options: PluginOptions): void {
   }
 }
 
+const reportFailed = (error: unknown): string => `context-inspector: report failed: ${error instanceof Error ? error.message : String(error)}`
+
 async function measured($: EngineInterface): Promise<{ usage?: UsageLite; breakdown?: BreakdownLite }> {
   try {
     const u = await $.session.usage({ breakdown: 'summary' })
@@ -193,8 +195,12 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'context-inspect' }, async ($, e) => {
     const { section, scope, unknown } = parseArgs(e.args)
     const { usage, breakdown } = await measured($)
-    const text = renderReport(summarize(ledger.snapshot(), scope, breakdown), section, usage)
-    return { text: unknown ? `unknown section '${unknown}'; showing the overview\n\n${text}` : text }
+    try {
+      const text = renderReport(summarize(ledger.snapshot(), scope, breakdown), section, usage)
+      return { text: unknown ? `unknown section '${unknown}'; showing the overview\n\n${text}` : text }
+    } catch (error) {
+      return { text: reportFailed(error) }
+    }
   })
 
   on('command.run', { command: 'context-pane' }, async $ => {
@@ -212,7 +218,12 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
-    const lines = paneLines(summary(), e.props.bodyColumns ?? 60)
+    let lines
+    try {
+      lines = paneLines(summary(), e.props.bodyColumns ?? 60)
+    } catch (error) {
+      return <Text>{reportFailed(error)}</Text>
+    }
     return (
       <Box flexDirection="column">
         {lines.map(line => (

@@ -165,6 +165,27 @@ test('waste in the window vs session cost: a compaction that drops every copy ze
   expect(advice.title).toBe('Unchanged files were read again while the earlier copy was still in context')
 })
 
+test('repeated-output needs waste: identical re-reads already counted elsewhere do not fire it', () => {
+  const l = new Ledger()
+  for (const id of ['r1', 'r2', 'r3']) readFile(l, id, '/src/mid.ts', 'x'.repeat(4_000))
+  const s = summarize(l.snapshot(), 'main')
+  expect(s.similar.clusters[0]!.size).toBe(3)
+  expect(s.similar.clusters[0]!.wasteEst).toBe(0)
+  expect(s.advice.map(a => a.id)).toContain('reread-unchanged')
+  expect(s.advice.map(a => a.id)).not.toContain('repeated-output')
+})
+
+test('the header marks a clamped k', () => {
+  const l = new Ledger()
+  l.sample('main', 1_000)
+  runBash(l, 'b1', 'cat log', 'z'.repeat(12_000)) // ≈3k estimated
+  l.sample('main', 100_000) // measured far above: k clamps at 2
+  const s = summarize(l.snapshot(), 'main')
+  expect(s.k).toBe(2)
+  expect(renderReport(s, 'advice')).toContain('k=2.00 (clamped), 1 calibration segment(s)')
+  expect(renderReport(summarize(busy().snapshot(), 'main'), 'advice')).not.toContain('(clamped)')
+})
+
 test('k stays the same after the ledger trims the items of an earlier calibration span', () => {
   const l = new Ledger(10)
   let n = 0

@@ -89,7 +89,7 @@ export function advise(input: AdviceInput): Advice[] {
       savings: bigBash.reduce((s, i) => s + est(i) - 1_000, 0),
     })
 
-  const repeated = clusters.filter(c => c.size >= 3 || c.wasteEst >= 3_000)
+  const repeated = clusters.filter(c => c.wasteEst > 0 && (c.size >= 3 || c.wasteEst >= 3_000))
   if (repeated.length > 0)
     push({
       id: 'repeated-output',

@@ -106,6 +106,7 @@ context-inspector/
 - 측정 입력 토큰 표본 `{ ctx, turn, seq, inputTokens, epoch }`은 `turn.step` stop 청크마다.
 - 상한: 항목 20,000개. 넘치면 가장 오래된 **non-live** 항목부터 버리고 `dropped`를 센다.
   live 항목은 버리지 않는다(점유 분석이 틀어지므로); 그래도 넘치면 가장 오래된 것부터 버리고 `droppedLive`를 센다.
+  버린 항목 중 가장 큰 seq를 `trimmedThrough`(스냅샷에도, 버린 적 없으면 0)로 남긴다. 보정은 첫 표본 seq < `trimmedThrough`인 구간을 건너뛴다(그 구간의 항목 일부가 사라졌을 수 있어 k가 틀어지므로).
 - `version` 카운터: 변경마다 증가, 요약 캐시 키.
 
 ### 4.2 재읽기 분류 (analyze/rereads.ts)
@@ -122,6 +123,10 @@ context-inspector/
 
 분류는 다음 순서로 처음 맞는 것: different-range → after-edit → after-compaction → changed-externally → unchanged-live.
 P는 같은 경로·같은 범위의 가장 최근 Read(범위가 다른 것만 있으면 가장 최근 Read).
+
+낭비는 둘로 센다: `wasteEst` = 세션 누적(모든 unchanged-live 재읽기), `currentWasteEst` = 그중 R이 아직 live인 것만.
+상태줄과 보고서 머리의 waste는 **현재 창** 기준(`currentWasteEst` + 유사 클러스터 낭비 — 유사 쪽은 원래 live만 센다).
+Re-reads 섹션은 `waste now ≈X · session ≈Y`로 둘 다 보인다. 컴팩션이 사본을 다 지우면 현재 낭비는 0이 되지만 세션 비용은 남는다.
 
 ### 4.3 유사 출력 (analyze/similar.ts)
 
@@ -164,10 +169,10 @@ P는 같은 경로·같은 범위의 가장 최근 Read(범위가 다른 것만 
 
 | id | 조건 | 추천 |
 |---|---|---|
-| `reread-unchanged` | unchanged-live 낭비 ≥ 2,000≈ 또는 같은 파일 3회 이상 | 이미 컨텍스트에 있는 내용; 필요한 부분만 Grep/offset |
+| `reread-unchanged` | unchanged-live 낭비 ≥ 2,000≈ 또는 같은 파일 3회 이상 (savings는 세션 누적 — 습관 추천, 제목은 과거형) | 이미 컨텍스트에 있는 내용; 필요한 부분만 Grep/offset |
 | `large-read` | 단일 Read ≥ 8,000≈, offset/limit 없음 | offset/limit 또는 Grep으로 범위 좁히기 |
 | `large-bash` | 단일 Bash 결과 ≥ 5,000≈ | `| tail -n`, `-q`, 필터로 출력 줄이기 |
-| `repeated-output` | 유사 클러스터 크기 ≥ 3 또는 낭비 ≥ 3,000≈ | 실패 테스트만 다시 돌리기 등 범위 좁히기 |
+| `repeated-output` | 클러스터 낭비 > 0 이고 (크기 ≥ 3 또는 낭비 ≥ 3,000≈) | 실패 테스트만 다시 돌리기 등 범위 좁히기 |
 | `compaction-lost-edits` | 컴팩션에서 편집 파일 엔티티를 잃음 | `/compact <지시>`로 보존할 것 명시, 또는 계획을 파일로 |
 | `compaction-reflow` | after-compaction 재읽기 ≥ 5,000≈ | 위와 동일, 핵심 파일 요약을 지시에 포함 |
 | `agent-verbose` | Agent 결과 ≥ 4,000≈ | 서브에이전트에 요약 길이 제한 지시 |
@@ -183,19 +188,26 @@ P는 같은 경로·같은 범위의 가장 최근 Read(범위가 다른 것만 
   — 텍스트 보고서(모든 환경에서 동작; VS Code 패널은 mod 그림을 표시하지 않으므로 기본 출력).
   기본은 overview(각 섹션 상위 3개 + 추천). 기본 범위는 main; `--agents`면 서브에이전트 컨텍스트도.
 - `/context-pane` — `$.ui.open({ id: 'context-inspector' })` 패널, 버전 변경 시 갱신.
-- 상태줄: `ctx 62% · waste≈8.1k` (percent는 `$.session.usage()`, 없으면 생략; waste = unchanged-live + 유사 클러스터 낭비, 중복 계산 제외).
+- 상태줄: `ctx 62% · waste≈8.1k` (percent는 `$.session.usage()`, 없으면 생략; waste = 아직 창에 있는 unchanged-live 재읽기 + 유사 클러스터 낭비, 중복 계산 제외 — 4.2).
+- 보고서 머리의 k가 보정 한계(0.5 또는 2.0)에 걸렸고 구간이 있으면 `k=2.00 (clamped)`로 표시한다.
+- `/context-inspect`와 패널은 요약·렌더링 실패 시 예외 대신 `context-inspector: report failed: <message>` 한 줄을 보인다.
   턴 완료 시와 컴팩션 후에만 갱신(`$.clock.after(0)`로 합침).
 - `/context-export` — `<outputDir>/<sessionId>/context-<loadId>.jsonl`. 한 줄에 하나:
   `{"type":"item"|"edit"|"sample"|"compaction"|"summary", ...}`. 원문 없음, 대상의 command/url은 redact 후 200자로 자름.
+  summary 레코드: `wasteEst`(현재), `currentWasteEst`, `sessionRereadEst`, `rereadWasteEst`(= 세션 재읽기), `similarWasteEst`, `compactionReflowEst`, k, 추천.
   outputDir 기본: `$.env.get('HOME')/.claude/context-inspector`. 4 MiB를 넘으면 여러 파일(`-<n>`)로 나눈다.
 
 ## 6. 오류 처리 — 인스펙터는 세션을 절대 방해하지 않는다
 
 - 모든 훅은 `next(e)`를 그대로 반환. 분석·기록은 try/catch로 감싸고 실패는 무시(디버그 로그 한 줄).
-- `tool.call`, `session.append`, `session.compact`에 `.catch(($, e, next) => next(e))`.
+- `tool.call`, `session.append`, `session.compact`, `session.end`에 `.catch(($, e, next) => next(e))`.
 - `session.compact`: `next(e)` 호출은 정확히 한 번, 결과는 변형 없이 반환.
 - 리로드: `session.start`에서 상태 초기화 후 `$.session.messages()` 백필(항목 `backfilled: true`, 턴/시간 정보 없음, 모두 live로 간주).
   백필 실패는 무시.
+- `/clear`·재개: 그 뒤 프로세스는 새 session id로 계속되고 `session.start`는 오지 않는다. 대신 `session.end`가 reason `clear`(또는 다른 세션이 대신하면 `resume`)로 온다.
+  → `session.end` 훅: `next(e)` 결과를 받은 뒤 그 reason이면 `session.start`와 같은 초기화+지연 백필(한 함수 `reset`)을 하고 결과를 그대로 반환.
+- 지연 백필은 원장이 같은 객체이고 아직 `prompt`/`response` 항목이 없을 때 돈다(그 전에 도구 결과·attachment가 먼저 들어와도 됨).
+  백필은 원장에 이미 항목이 있는 tool_use_id의 호출·결과를 건너뛰어 중복(편집 기록 포함)을 만들지 않고, 먼저 들어온 항목에는 `backfilled`를 붙이지 않는다.
 - 성능: `session.append` 경로는 O(행 길이). 요약은 version 캐시. 항목 20k에서 요약 < 200 ms.
 
 ## 7. 테스트
@@ -248,7 +260,7 @@ agent-profiler와 동일: 터미널은 상태줄·패널·토스트·명령 모�
    점유 분석의 범주 = tool-result는 도구 이름, attachment·hook-context는 `attachment:<name>`, 그 밖은 door.
    content가 빈 행(`[]`)은 항목으로 만들지 않는다.
 9. **테스트**: 테스트 러너에서 `session.append`는 올릴 수 없다(답하는 훅이 건너뛰어짐). 그러므로 이벤트 → Ledger 변환은 순수 함수 `ingestAppend`로 두고 단위 테스트한다.
-   `session.compact`는 2.1.292 러너에서 올릴 수 있다. 어댑터 테스트는 2.1.292 바이너리로 돌린다.
+   `session.compact`와 `session.end`는 2.1.292 러너에서 올릴 수 있다(`$.clock.after`는 러너에 구현이 없어 지연 백필은 단위 테스트로 덮는다). 어댑터 테스트는 2.1.292 바이너리로 돌린다.
 10. **항목의 탄생 epoch(`born`)**: 항목에 `born`(append 시점 epoch)을 두고 `epoch`(마지막으로 live였던 epoch)와 구분한다.
     재읽기에서 "이전 읽기 P가 R 이전에 컴팩션으로 빠졌다" ⇔ `P.epoch < R.born`. (`epoch`만 쓰면 R이 컴팩션에서 살아남고 P가 빠진 경우를 거꾸로 판정한다.)
 11. 엔진이 붙인 `file` attachment는 프롬프트의 @멘션에서도 생긴다. 그래서 항목에는 `attached: true`만 표시하고,
