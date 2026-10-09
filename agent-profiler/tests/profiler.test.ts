@@ -82,15 +82,46 @@ test('retried steps get distinct ids; open spans show as running, longest first'
   expect(p.running(1001).map(r => r.label)).toEqual(['model m', 'Bash sleep 9', 'model m'])
 })
 
-test('finished spans are dropped past the cap and counted', () => {
+test('past the cap, whole oldest finished turns are dropped with their spans and counted', () => {
   const p = new Profiler('s', 10)
   for (let i = 0; i < 12; i += 1) {
-    p.toolStart(i, { id: `t${i}`, tool: 'Read', input: {} })
-    p.toolEnd(i + 1, `t${i}`, ok)
+    p.turnStart(i * 10, `turn${i}`)
+    p.toolStart(i * 10 + 1, { id: `t${i}`, tool: 'Read', input: {} })
+    p.toolEnd(i * 10 + 2, `t${i}`, ok)
+    p.turnComplete(i * 10 + 3, `turn${i}`)
+  }
+  const s = p.snapshot(1_000)
+  expect(s.tools.length).toBe(10)
+  expect(s.turns.length).toBe(10)
+  expect(s.turns[0]?.id).toBe('turn2')
+  expect(s.droppedTurns).toBe(2)
+  expect(s.droppedSpans).toBe(2)
+  expect(s.started).toBe(0)
+})
+
+test('eviction takes the subagents launched from a dropped turn, and skips turns still running', () => {
+  const p = new Profiler('s', 4)
+  p.turnStart(0, 'old')
+  p.toolStart(1, { id: 'ag', tool: 'Agent', input: { subagentType: 'Explore' } })
+  p.subagentStart(2, 'a1', 'Explore')
+  const sub = p.stepStart(3, { turnId: 'sub', index: 0, model: 'h', agentId: 'a1' })
+  p.stepEnd(4, sub)
+  p.subagentStop(5, 'a1')
+  p.toolEnd(6, 'ag', { denied: false, isError: false, launchedAgentId: 'a1', launchedAsync: false })
+  p.turnComplete(7, 'old')
+  p.turnStart(10, 'busy')
+  p.toolStart(11, { id: 'long', tool: 'Bash', input: { command: 'sleep 99' } })
+  p.turnStart(20, 'new')
+  for (let i = 0; i < 3; i += 1) {
+    const step = p.stepStart(21 + i, { turnId: 'new', index: i, model: 'm' })
+    p.stepEnd(22 + i, step)
   }
   const s = p.snapshot(100)
-  expect(s.tools.length).toBe(10)
-  expect(s.dropped).toBe(2)
+  expect(s.turns.map(t => t.id)).toEqual(['busy', 'new'])
+  expect(s.agents).toEqual([])
+  expect(s.tools.map(t => t.id)).toEqual(['long'])
+  expect(s.droppedTurns).toBe(1)
+  expect(s.droppedSpans).toBe(3)
 })
 
 test('summarizeInput and toolOutcome read the engine shapes', () => {

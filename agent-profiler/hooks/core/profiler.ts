@@ -69,7 +69,9 @@ export class Profiler {
   private readonly openSteps = new Set<string>()
   private readonly openTools = new Set<string>()
   private readonly openAgents = new Set<string>()
-  private dropped = 0
+  private droppedTurns = 0
+  private droppedSpans = 0
+  private started: number | undefined
   // Bumped on every change, so callers can cache what they derive from a snapshot.
   version = 0
 
@@ -81,6 +83,7 @@ export class Profiler {
   turnStart(t: number, turnId: string, prompt = '', ctx = MAIN): void {
     if (this.turns.has(turnId)) return
     this.turns.set(turnId, { id: turnId, ctx, start: t, prompt: prompt.slice(0, 120) })
+    this.seen(t)
     this.stack(ctx).push(turnId)
     this.version += 1
   }
@@ -111,6 +114,7 @@ export class Profiler {
     if (args.effort !== undefined) step.effort = String(args.effort)
     this.steps.set(id, step)
     this.openSteps.add(id)
+    this.seen(t)
     this.version += 1
     this.trim()
     return id
@@ -159,6 +163,7 @@ export class Profiler {
     }
     this.tools.set(args.id, tool)
     this.openTools.add(args.id)
+    this.seen(t)
     this.version += 1
     this.trim()
   }
@@ -209,6 +214,7 @@ export class Profiler {
     if (parent) agent.parentToolId = parent.id
     this.agents.set(agentId, agent)
     this.openAgents.add(agentId)
+    this.seen(t)
     this.version += 1
   }
 
@@ -247,7 +253,9 @@ export class Profiler {
       steps: [...this.steps.values()].map(step => ({ ...step, ...(step.usage ? { usage: { ...step.usage } } : {}) })),
       tools: [...this.tools.values()].map(tool => ({ ...tool, input: { ...tool.input } })),
       agents: [...this.agents.values()].map(agent => ({ ...agent })),
-      dropped: this.dropped,
+      ...(this.started !== undefined ? { started: this.started } : {}),
+      droppedTurns: this.droppedTurns,
+      droppedSpans: this.droppedSpans,
     }
   }
 
@@ -271,19 +279,71 @@ export class Profiler {
     if (open && at >= 0) open.splice(at, 1)
   }
 
+  private seen(t: number): void {
+    if (this.started === undefined || t < this.started) this.started = t
+  }
+
+  // Past the cap, drop whole finished main turns, oldest first, with their requests and tools and the
+  // subagents launched from them (and those subagents' own work). Dropping a turn's spans without the
+  // turn would show their time as engine overhead.
   private trim(): void {
     if (this.steps.size + this.tools.size <= this.maxSpans) return
     const target = Math.floor(this.maxSpans * 0.9)
-    this.evict(this.steps, target)
-    this.evict(this.tools, target)
-  }
+    const byTurn = new Map<string, { steps: string[]; tools: string[] }>()
+    const byCtx = new Map<string, { steps: string[]; tools: string[]; turns: string[] }>()
+    const slot = <K, V>(map: Map<K, V>, key: K, make: () => V): V => {
+      let value = map.get(key)
+      if (!value) {
+        value = make()
+        map.set(key, value)
+      }
+      return value
+    }
+    for (const step of this.steps.values()) {
+      if (step.ctx === MAIN) slot(byTurn, step.turnId, () => ({ steps: [], tools: [] })).steps.push(step.id)
+      else slot(byCtx, step.ctx, () => ({ steps: [], tools: [], turns: [] })).steps.push(step.id)
+    }
+    for (const tool of this.tools.values()) {
+      if (tool.ctx !== MAIN) slot(byCtx, tool.ctx, () => ({ steps: [], tools: [], turns: [] })).tools.push(tool.id)
+      else if (tool.turnId !== undefined) slot(byTurn, tool.turnId, () => ({ steps: [], tools: [] })).tools.push(tool.id)
+    }
+    for (const turn of this.turns.values()) {
+      if (turn.ctx !== MAIN) slot(byCtx, turn.ctx, () => ({ steps: [], tools: [], turns: [] })).turns.push(turn.id)
+    }
+    const launched = new Map<string, string[]>()
+    for (const agent of this.agents.values()) {
+      if (agent.parentToolId !== undefined) slot(launched, agent.parentToolId, () => [] as string[]).push(agent.id)
+    }
 
-  private evict<T extends { end?: number }>(map: Map<string, T>, target: number): void {
-    for (const [id, rec] of map) {
+    for (const turn of [...this.turns.values()]) {
       if (this.steps.size + this.tools.size <= target) return
-      if (rec.end === undefined) continue
-      map.delete(id)
-      this.dropped += 1
+      if (turn.ctx !== MAIN || turn.end === undefined) continue
+      const own = byTurn.get(turn.id) ?? { steps: [], tools: [] }
+      const steps = [...own.steps]
+      const tools = [...own.tools]
+      const turns = [turn.id]
+      const agents: string[] = []
+      for (let i = 0; i < tools.length; i += 1) {
+        for (const agentId of launched.get(tools[i] as string) ?? []) {
+          if (agents.includes(agentId)) continue
+          agents.push(agentId)
+          const work = byCtx.get(agentId)
+          if (!work) continue
+          steps.push(...work.steps)
+          tools.push(...work.tools)
+          turns.push(...work.turns)
+        }
+      }
+      const busy =
+        steps.some(id => this.openSteps.has(id)) || tools.some(id => this.openTools.has(id)) || agents.some(id => this.openAgents.has(id))
+      if (busy) continue
+      for (const id of steps) this.steps.delete(id)
+      for (const id of tools) this.tools.delete(id)
+      for (const id of agents) this.agents.delete(id)
+      for (const id of turns) this.turns.delete(id)
+      this.droppedTurns += 1
+      this.droppedSpans += steps.length + tools.length + agents.length
+      this.version += 1
     }
   }
 }

@@ -29,38 +29,55 @@ export type Summary = {
     unionMs: number
     execMs: number
     permissionMs: number
+    // Approval wait as a share of agent time: the union of the waits inside main turns, so at most 1.
+    permissionShare: number
     overheadMs: number
     errors: number
     denied: number
     byTool: { tool: string; calls: number; ms: number }[]
     slowest: { tool: string; label: string; ms: number; waitMs: number; ctx: string }[]
   }
+  // testMs sums every test run; testShare is the union of test execution inside main turns over agent time (≤ 1).
   bash: { byCategory: { category: BashCategory; calls: number; ms: number }[]; testMs: number; testShare: number }
   reads: { path: string; reads: number; redundant: number }[]
   agents: { id: string; agentType: string; wallMs: number; modelMs: number; toolMs: number; requests: number; tools: number; blocking: boolean; done: boolean }[]
   findings: string[]
   incomplete: number
-  dropped: number
+  droppedTurns: number
+  droppedSpans: number
 }
 
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
 const PRIORITY: Category[] = ['model', 'subagent', 'tool']
 
-export function unionLength(intervals: Interval[]): number {
+// Sorted, disjoint cover of the intervals.
+export function mergeIntervals(intervals: Interval[]): Interval[] {
   const sorted = intervals.filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0])
-  let total = 0
-  let start = 0
-  let end = -Infinity
+  const out: Interval[] = []
   for (const [a, b] of sorted) {
-    if (a > end) {
-      if (end > start) total += end - start
-      start = a
-      end = b
-    } else if (b > end) {
-      end = b
-    }
+    const last = out[out.length - 1]
+    if (last && a <= last[1]) last[1] = Math.max(last[1], b)
+    else out.push([a, b])
   }
-  if (end > start) total += end - start
+  return out
+}
+
+export function unionLength(intervals: Interval[]): number {
+  return mergeIntervals(intervals).reduce((sum, [a, b]) => sum + b - a, 0)
+}
+
+// Length of (∪ intervals) ∩ (∪ windows).
+export function overlapLength(intervals: Interval[], windows: Interval[]): number {
+  const xs = mergeIntervals(intervals)
+  const ws = mergeIntervals(windows)
+  let total = 0
+  for (let i = 0, j = 0; i < xs.length && j < ws.length; ) {
+    const x = xs[i] as Interval
+    const w = ws[j] as Interval
+    total += Math.max(0, Math.min(x[1], w[1]) - Math.max(x[0], w[0]))
+    if (x[1] < w[1]) i += 1
+    else j += 1
+  }
   return total
 }
 
@@ -158,6 +175,7 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
   let inputTokens = 0
   let cacheReadTokens = 0
   let outputTokens = 0
+  let streamTokens = 0
   let streamMs = 0
   for (const x of steps) {
     if (x.thinkFirst !== undefined && x.thinkLast !== undefined) thinkingMs += x.thinkLast - x.thinkFirst
@@ -166,7 +184,10 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
       inputTokens += x.usage.input_tokens + x.usage.cache_read_input_tokens + x.usage.cache_creation_input_tokens
       cacheReadTokens += x.usage.cache_read_input_tokens
       outputTokens += x.usage.output_tokens
-      if (x.firstContent !== undefined) streamMs += end(x) - x.firstContent
+      if (x.firstContent !== undefined) {
+        streamTokens += x.usage.output_tokens
+        streamMs += end(x) - x.firstContent
+      }
     }
   }
 
@@ -176,6 +197,8 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
     const exec = x.execMs !== undefined ? Math.min(x.execMs, wall) : wall
     return { x, wall, exec, wait: Math.max(0, wall - exec) }
   })
+  const testIntervals: Interval[] = []
+  const waitIntervals: Interval[] = []
   let execMs = 0
   let permissionMs = 0
   let overheadMs = 0
@@ -185,8 +208,12 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
   for (const { x, wall, exec, wait } of timed) {
     sumMs += wall
     execMs += exec
-    if (x.decision === 'ask') permissionMs += wait
-    else overheadMs += wait
+    if (x.decision === 'ask') {
+      permissionMs += wait
+      waitIntervals.push([x.start, x.start + wait])
+    } else {
+      overheadMs += wait
+    }
     const row = byTool.get(x.tool) ?? { tool: x.tool, calls: 0, ms: 0 }
     row.calls += 1
     row.ms += wall
@@ -197,9 +224,12 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
       cat.calls += 1
       cat.ms += exec
       byCategory.set(category, cat)
+      if (category === 'test') testIntervals.push([x.start + wait, x.start + wall])
     }
   }
   const testMs = byCategory.get('test')?.ms ?? 0
+  const windows = mainTurns.map(t => [t.start, end(t)] as Interval)
+  const share = (intervals: Interval[]) => (wallMs > 0 ? overlapLength(intervals, windows) / wallMs : 0)
 
   const seen = new Map<string, { path: string; reads: number; redundant: number; ranges: Set<string> }>()
   for (const x of [...tools].sort((a, b) => a.start - b.start)) {
@@ -227,13 +257,13 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
     model: {
       requests: steps.length,
       ttftAvg: ttfts.length ? Math.round(ttfts.reduce((a, b) => a + b, 0) / ttfts.length) : 0,
-      ttftP95: ttfts.length ? ttfts[Math.max(0, Math.ceil(ttfts.length * 0.95) - 1)] : 0,
+      ttftP95: ttfts[Math.max(0, Math.ceil(ttfts.length * 0.95) - 1)] ?? 0,
       thinkingMs,
       outputMs,
       inputTokens,
       cacheReadTokens,
       outputTokens,
-      tokensPerSec: streamMs > 0 && outputTokens > 0 ? outputTokens / (streamMs / 1_000) : null,
+      tokensPerSec: streamMs > 0 && streamTokens > 0 ? streamTokens / (streamMs / 1_000) : null,
     },
     tools: {
       calls: plain.length,
@@ -241,6 +271,7 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
       unionMs: unionLength(plain.map(x => [x.start, end(x)] as Interval)),
       execMs,
       permissionMs,
+      permissionShare: share(waitIntervals),
       overheadMs,
       errors: plain.filter(x => x.isError).length,
       denied: plain.filter(x => x.denied).length,
@@ -250,7 +281,7 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
         .slice(0, 5)
         .map(({ x, wall, wait }) => ({ tool: x.tool, label: toolLabel(x), ms: wall, waitMs: wait, ctx: x.ctx })),
     },
-    bash: { byCategory: [...byCategory.values()].sort((a, b) => b.ms - a.ms), testMs, testShare: wallMs > 0 ? testMs / wallMs : 0 },
+    bash: { byCategory: [...byCategory.values()].sort((a, b) => b.ms - a.ms), testMs, testShare: share(testIntervals) },
     reads: [...seen.values()]
       .filter(r => r.reads >= 2)
       .sort((a, b) => b.redundant - a.redundant || b.reads - a.reads)
@@ -276,7 +307,8 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
       .sort((a, b) => b.wallMs - a.wallMs),
     findings: [],
     incomplete: [...mainTurns, ...steps, ...tools, ...agents].filter(x => x.end === undefined).length,
-    dropped: s.dropped,
+    droppedTurns: s.droppedTurns,
+    droppedSpans: s.droppedSpans,
   }
   summary.findings = buildFindings(summary)
   return summary
@@ -291,10 +323,10 @@ function buildFindings(sum: Summary): string[] {
   }
   if (sum.bash.testShare >= 0.25) {
     const runs = sum.bash.byCategory.find(c => c.category === 'test')?.calls ?? 0
-    out.push(`Tests took ${pct(sum.bash.testMs, wall)} of agent time (${fmtMs(sum.bash.testMs)} over ${runs} run(s)).`)
+    out.push(`Tests took ${pct(sum.bash.testShare, 1)} of agent time (${fmtMs(sum.bash.testMs)} over ${runs} run(s)).`)
   }
-  if (sum.tools.permissionMs / wall >= 0.2) {
-    out.push(`Waiting for approval took ${pct(sum.tools.permissionMs, wall)} (${fmtMs(sum.tools.permissionMs)}); allow rules for repeated commands would remove it.`)
+  if (sum.tools.permissionShare >= 0.2) {
+    out.push(`Waiting for approval took ${pct(sum.tools.permissionShare, 1)} of agent time (${fmtMs(sum.tools.permissionMs)}); allow rules for repeated commands would remove it.`)
   }
   for (const r of sum.reads) {
     if (r.redundant >= 2) out.push(`${clip(r.path, 80)} was read ${r.reads}× (${r.redundant}× with no edit in between).`)

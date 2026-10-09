@@ -30,3 +30,15 @@ test('pane lines start with the total and stay within the width', () => {
   expect(lines[0]).toEqual({ text: '10.0s agent time · 1 turn(s)', bold: true })
   expect(lines.every(line => line.text.length <= 80)).toBe(true)
 })
+
+test('the report says how many older turns were dropped', () => {
+  const p = new Profiler('s', 2)
+  for (let n = 0; n < 4; n += 1) {
+    p.turnStart(n * 10, `t${n}`)
+    const step = p.stepStart(n * 10, { turnId: `t${n}`, index: 0, model: 'm' })
+    p.stepEnd(n * 10 + 5, step)
+    p.turnComplete(n * 10 + 5, `t${n}`)
+  }
+  const text = renderReport(summarize(p.snapshot(100)))
+  expect(text).toContain('Covers the last 2 turn(s); 2 older turn(s) dropped (already exported).')
+})

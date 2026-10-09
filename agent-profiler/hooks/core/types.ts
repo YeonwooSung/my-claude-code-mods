@@ -59,7 +59,11 @@ export type Snapshot = {
   steps: StepRec[]
   tools: ToolRec[]
   agents: AgentRec[]
-  dropped: number
+  // Earliest start ever recorded, including spans dropped since.
+  started?: number
+  // Whole main turns dropped past the span cap, and the requests, tools and agents that went with them.
+  droppedTurns: number
+  droppedSpans: number
 }
 
 export type Outcome = { denied: boolean; isError: boolean; launchedAgentId?: string; launchedAsync?: boolean }

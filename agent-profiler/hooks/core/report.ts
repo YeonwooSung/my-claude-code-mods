@@ -20,6 +20,9 @@ export function renderReport(sum: Summary): string {
     lines.push('No turns recorded yet.')
     return lines.join('\n')
   }
+  if (sum.scope === 'session' && sum.droppedTurns > 0) {
+    lines.push(`Covers the last ${sum.turns} turn(s); ${sum.droppedTurns} older turn(s) dropped (already exported).`)
+  }
   lines.push('', 'Where the time went (exclusive; adds up to agent time)')
   for (const cat of ORDER) {
     const ms = sum.exclusive[cat]
@@ -68,7 +71,7 @@ export function renderReport(sum: Summary): string {
     'observed = timed by this mod at event boundaries · measured = timed by Claude Code · reported = API usage · inferred = remainder.',
     "Model time is how long the agent waited for the response, not the model's internal compute time.",
   )
-  if (sum.incomplete || sum.dropped) lines.push(`${sum.incomplete} span(s) still open${sum.dropped ? ` · ${sum.dropped} old span(s) dropped` : ''}.`)
+  if (sum.incomplete) lines.push(`${sum.incomplete} span(s) still open.`)
   return lines.join('\n')
 }
 
