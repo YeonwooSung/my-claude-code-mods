@@ -156,3 +156,6 @@ vite.config.ts.timestamp-*
 
 # agent-profiler: type declarations the engine (or the tsc gate) lays beside the mod
 agent-profiler/.claude-plugin/types/
+
+# context-inspector: type declarations the engine (or the tsc gate) lays beside the mod
+context-inspector/.claude-plugin/types/

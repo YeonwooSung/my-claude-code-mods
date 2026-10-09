@@ -1,0 +1,20 @@
+{
+  "name": "context-inspector",
+  "version": "0.1.0",
+  "description": "Context waste analyzer for Claude Code: what fills the window, re-reads, near-duplicate outputs, what compaction kept, advice",
+  "author": { "name": "YeonwooSung" },
+  "userConfig": {
+    "outputDir": {
+      "type": "string",
+      "title": "Export directory",
+      "description": "Where /context-export writes JSONL, one folder per session (empty: ~/.claude/context-inspector)",
+      "default": ""
+    },
+    "toastAdvice": {
+      "type": "boolean",
+      "title": "Toast high-severity advice",
+      "description": "Show one toast per session the first time a high-severity recommendation appears",
+      "default": true
+    }
+  }
+}
