@@ -227,7 +227,8 @@ agent-profiler와 동일: 터미널은 상태줄·패널·토스트·명령 모�
    → 재읽기 분류에 `engine-deduped`를 추가한다(조건: tool.call 결과 type이 `file_unchanged`; 분류 순서의 맨 앞).
    낭비는 그 짧은 결과의 ≈토큰뿐이며, `reread-unchanged` 추천은 이 분류를 세지 않는다.
 2. **Read 범위는 결과에서 안다.** `result.file = { startLine, numLines, totalLines }`.
-   범위 키 = `startLine:numLines`(입력 offset/limit가 없어도), 전체 읽기 = `numLines >= totalLines`.
+   전체 읽기 = `startLine <= 1 && numLines >= totalLines`(결과에서). 범위 키는 **입력**의 `offset:limit`(둘 다 없으면 키 없음 = 전체)로 한다 —
+   결과의 numLines를 키로 쓰면 읽기 사이에 파일이 길어졌을 때 같은 전체 읽기가 `different-range`로 잘못 분류된다.
    `large-read`는 "전체 읽기이면서 ≥ 8,000≈"로 판정한다.
 3. **같은 uuid가 다시 append된다.** 컴팩션 뒤 엔진은 유지한 행(예: 마지막 응답)을 같은 uuid로 다시 append한다.
    → Ledger는 uuid로 중복을 제거한다: 이미 있는 uuid면 새 항목을 만들지 않고 그 항목을 live로, 현재 epoch로 되살린다.
@@ -247,3 +248,7 @@ agent-profiler와 동일: 터미널은 상태줄·패널·토스트·명령 모�
    content가 빈 행(`[]`)은 항목으로 만들지 않는다.
 9. **테스트**: 테스트 러너에서 `session.append`는 올릴 수 없다(답하는 훅이 건너뛰어짐). 그러므로 이벤트 → Ledger 변환은 순수 함수 `ingestAppend`로 두고 단위 테스트한다.
    `session.compact`는 2.1.292 러너에서 올릴 수 있다. 어댑터 테스트는 2.1.292 바이너리로 돌린다.
+10. **항목의 탄생 epoch(`born`)**: 항목에 `born`(append 시점 epoch)을 두고 `epoch`(마지막으로 live였던 epoch)와 구분한다.
+    재읽기에서 "이전 읽기 P가 R 이전에 컴팩션으로 빠졌다" ⇔ `P.epoch < R.born`. (`epoch`만 쓰면 R이 컴팩션에서 살아남고 P가 빠진 경우를 거꾸로 판정한다.)
+11. 엔진이 붙인 `file` attachment는 프롬프트의 @멘션에서도 생긴다. 그래서 항목에는 `attached: true`만 표시하고,
+    `restored` 분류는 "attached이고 이전 읽기 P가 있으며 `P.epoch < R.born`"일 때만 준다.
