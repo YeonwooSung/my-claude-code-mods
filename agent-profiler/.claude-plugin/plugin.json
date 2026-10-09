@@ -1,0 +1,20 @@
+{
+  "name": "agent-profiler",
+  "version": "0.1.0",
+  "description": "Execution profiler for Claude Code: model wait vs tools vs subagents, live, with OTLP export",
+  "author": { "name": "YeonwooSung" },
+  "userConfig": {
+    "otlpEndpoint": {
+      "type": "string",
+      "title": "OTLP/HTTP endpoint",
+      "description": "Base URL of an OTLP/HTTP collector, e.g. http://localhost:4318 (empty: write files only)",
+      "default": ""
+    },
+    "outputDir": {
+      "type": "string",
+      "title": "Trace directory",
+      "description": "Where <session>.otlp.json files are written (empty: ~/.claude/agent-profiler)",
+      "default": ""
+    }
+  }
+}
