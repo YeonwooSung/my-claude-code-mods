@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { extractEntities, isMentioned, type MessageLike } from '../hooks/core/entities.ts'
-import { backfill, ingestAppend, ingestCompaction, ingestToolCall, ingestToolResult } from '../hooks/core/ingest.ts'
+import { backfill, ingestAppend, ingestCompaction, ingestToolCall, ingestToolResult, needsBackfill } from '../hooks/core/ingest.ts'
 import { Ledger } from '../hooks/core/ledger.ts'
 import { attachmentRow, editFile, okLines, promptRow, readFile, runBash, toolResultRow } from './fixtures.ts'
 
@@ -245,4 +245,36 @@ test('a denied or errored edit is not recorded', () => {
   ingestToolCall(l, 'e3', 'Edit', undefined, input)
   ingestToolResult(l, 'e3', { result: {} })
   expect(l.snapshot().edits.length).toBe(1)
+})
+
+test('backfill skips tool results the ledger already holds, so rows that arrived first are not doubled', () => {
+  const l = new Ledger()
+  readFile(l, 'r1', '/a.ts', okLines(3))
+  editFile(l, 'e1', '/b.ts', 'x', 'y')
+  backfill(l, [
+    { role: 'user', text: 'start', toolUses: [] },
+    { role: 'assistant', text: 'working', toolUses: [{ tool_use_id: 'r1', tool: 'Read', input: { file_path: '/a.ts' } }, { tool_use_id: 'e1', tool: 'Edit', input: { file_path: '/b.ts', old_string: 'x', new_string: 'y' } }, { tool_use_id: 'r2', tool: 'Read', input: { file_path: '/c.ts' } }] },
+    { role: 'user', text: '', toolUses: [], toolResults: [{ tool_use_id: 'r1', text: okLines(3), isError: false }, { tool_use_id: 'e1', text: 'updated', isError: false }, { tool_use_id: 'r2', text: okLines(2), isError: false }] },
+  ])
+  const s = l.snapshot()
+  expect(s.items.filter(i => i.toolUseId === 'r1').length).toBe(1)
+  expect(s.items.filter(i => i.toolUseId === 'e1').length).toBe(1)
+  expect(s.items.filter(i => i.toolUseId === 'r2').length).toBe(1)
+  expect(s.edits.length).toBe(1)
+  expect(s.items.filter(i => i.door === 'prompt').length).toBe(1)
+  // the rows recorded live keep their flag off; only the read-back ones are marked
+  expect(s.items.filter(i => i.backfilled).map(i => i.toolUseId ?? i.door)).toEqual(['prompt', 'response', 'r2'])
+})
+
+test('needsBackfill: yes while the ledger holds no prompt or response, no once it does', () => {
+  const l = new Ledger()
+  expect(needsBackfill(l)).toBe(true)
+  readFile(l, 'r1', '/a.ts', okLines(3))
+  ingestAppend(l, attachmentRow('hook_context', 'some context'))
+  expect(needsBackfill(l)).toBe(true)
+  ingestAppend(l, promptRow('go'))
+  expect(needsBackfill(l)).toBe(false)
+  const r = new Ledger()
+  ingestAppend(r, { door: 'response', uuid: 'a1', message: { type: 'assistant', role: 'assistant', content: [{ type: 'text', text: 'hi' }] } })
+  expect(needsBackfill(r)).toBe(false)
 })

@@ -186,23 +186,36 @@ export function ingestCompaction(l: Ledger, e: CompactIn, r: CompactOut): void {
   l.compacted(e.agentId ?? MAIN, keptRows, keptTools, { trigger: e.trigger, tokensBefore: r.tokensBefore, tokensAfter: r.tokensAfter, entities })
 }
 
-// After a reload or resume: what the main conversation already holds (no attachments, no timing).
+// A fresh ledger is read back from the conversation until it holds a prompt or a response: tool results
+// and attachments may arrive before the deferred backfill runs, and backfill skips those.
+export function needsBackfill(l: Ledger): boolean {
+  return !l.snapshot().items.some(i => i.door === 'prompt' || i.door === 'response')
+}
+
+// After a reload, resume or /clear: what the main conversation already holds (no attachments, no timing).
+// Tool calls whose result the ledger already holds were recorded live and are not added again.
 export function backfill(l: Ledger, messages: readonly MessageLike[]): void {
+  const before = l.snapshot().items
+  const held = new Set(before.flatMap(i => (i.toolUseId !== undefined ? [i.toolUseId] : [])))
+  const afterSeq = before.at(-1)?.seq ?? 0
   messages.forEach((m, i) => {
     const row = `backfill-${i}`
     if (m.role === 'assistant') {
       for (const u of m.toolUses) {
+        if (held.has(u.tool_use_id)) continue
         ingestToolCall(l, u.tool_use_id, u.tool, undefined, u.input)
         ingestToolResult(l, u.tool_use_id, { isError: u.isError === true, result: (u as { result?: unknown }).result })
       }
       const content = [{ type: 'text', text: m.text }, ...m.toolUses.map(u => ({ type: 'tool_use', name: u.tool, input: u.input }))]
       ingestAppend(l, { door: 'response', uuid: row, message: { type: 'assistant', role: 'assistant', content } })
     } else if ((m.toolResults?.length ?? 0) > 0) {
-      const content = (m.toolResults ?? []).map(t => ({ type: 'tool_result', tool_use_id: t.tool_use_id, content: t.text, is_error: t.isError }))
+      const results = (m.toolResults ?? []).filter(t => !held.has(t.tool_use_id))
+      if (results.length === 0) return
+      const content = results.map(t => ({ type: 'tool_result', tool_use_id: t.tool_use_id, content: t.text, is_error: t.isError }))
       ingestAppend(l, { door: 'tool-result', uuid: row, message: { type: 'user', role: 'user', content } })
     } else {
       ingestAppend(l, { door: 'prompt', uuid: row, message: { type: 'user', role: 'user', content: m.text } })
     }
   })
-  l.markBackfilled()
+  l.markBackfilled(afterSeq)
 }

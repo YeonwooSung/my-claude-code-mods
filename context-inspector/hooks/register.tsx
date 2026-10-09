@@ -3,7 +3,7 @@ import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 import type { BreakdownLite } from './core/advice.ts'
 import { chunkLines, exportLines } from './core/export.ts'
 import { fmtCount } from './core/format.ts'
-import { backfill, ingestAppend, ingestCompaction, ingestToolCall, ingestToolResult } from './core/ingest.ts'
+import { backfill, ingestAppend, needsBackfill, ingestCompaction, ingestToolCall, ingestToolResult } from './core/ingest.ts'
 import { Ledger } from './core/ledger.ts'
 import { paneLines, parseArgs, renderReport, statusLine, type UsageLite } from './core/report.ts'
 import { summarize, type Scope, type Summary } from './core/summary.ts'
@@ -44,6 +44,26 @@ function summary(scope: Scope = 'main'): Summary {
   const sum = summarize(ledger.snapshot(), scope)
   cache.set(scope, { ledger, version: ledger.version, sum })
   return sum
+}
+
+// A new conversation in this process (start, reload, resume, /clear): forget the old one and read back,
+// off the calling path, what the new one already holds. Rows that arrive before the read-back are kept.
+function reset($: EngineInterface): void {
+  const own = new Ledger()
+  ledger = own
+  cache.clear()
+  toasted = false
+  percent = undefined
+  safe(() =>
+    $.clock.after(0, async () => {
+      try {
+        const messages = await $.session.messages()
+        if (own === ledger && needsBackfill(own) && messages.length > 0) backfill(own, messages)
+      } catch {
+        // nothing to read back
+      }
+    }),
+  )
 }
 
 // Paints are queued behind the event that asked, at most one pending.
@@ -119,10 +139,7 @@ async function exportLedger($: EngineInterface, options: PluginOptions): Promise
 
 export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
-    ledger = new Ledger()
-    cache.clear()
-    toasted = false
-    percent = undefined
+    safe(() => reset($))
     for (const command of COMMANDS) {
       try {
         await $.command.register(command)
@@ -130,20 +147,16 @@ export const register: Register = (on, options) => {
         // the command stays unavailable
       }
     }
-    // A reload or a resume starts empty: read back what the conversation holds, off the start path.
-    safe(() =>
-      $.clock.after(0, async () => {
-        const own = ledger
-        try {
-          const messages = await $.session.messages()
-          if (own === ledger && own.size === 0 && messages.length > 0) backfill(own, messages)
-        } catch {
-          // nothing to read back
-        }
-      }),
-    )
     return next(e)
   })
+
+  // After /clear (or when another session takes this one's place) the process goes on under a new
+  // session id and no session.start fires: this is where the old conversation's ledger is dropped.
+  on('session.end', async ($, e, next) => {
+    const result = await next(e)
+    if (e.reason === 'clear' || e.reason === 'resume') safe(() => reset($))
+    return result
+  }).catch(($, e, next) => next(e))
 
   on('session.append', async ($, e, next) => {
     safe(() => ingestAppend(ledger, e))

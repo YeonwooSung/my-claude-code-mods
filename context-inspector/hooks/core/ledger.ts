@@ -141,8 +141,9 @@ export class Ledger {
     return full
   }
 
-  markBackfilled(): void {
-    for (const item of this.items) item.backfilled = true
+  // Items added after `afterSeq` came from a backfill; ones recorded live before it stay unmarked.
+  markBackfilled(afterSeq = 0): void {
+    for (const item of this.items) if (item.seq > afterSeq) item.backfilled = true
     this.version += 1
   }
 

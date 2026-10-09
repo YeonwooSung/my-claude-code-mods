@@ -70,3 +70,18 @@ test('/context-export reports a write failure instead of throwing', async ($, on
   const answer = await $.command.run({ command: 'context-export', args: '' } as never)
   expect(String(answer.text)).toContain('export failed')
 })
+
+const endClear = { reason: 'clear', sessionId: 'old', resume: { id: 'old' } } as never
+
+test('session.end after /clear resets the ledger and relays the result unchanged', async ($, on) => {
+  on('session.messages', () => ({ value: [] }))
+  on('session.compact', () => ({ messages: [{ role: 'user', text: 'Summary', toolUses: [] }], tokensBefore: 50, tokensAfter: 5 }))
+  on('session.end', () => ({ sessionId: 'old' }))
+  await $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'a', toolUses: [], handle: 'h1' }] } as never)
+  const before = String((await $.command.run({ command: 'context-inspect', args: 'compactions' } as never)).text)
+  expect(before).toMatch(/#\d+ manual/)
+  const ended = await $.session.end(endClear)
+  expect(ended).toEqual({ sessionId: 'old' })
+  const after = String((await $.command.run({ command: 'context-inspect', args: 'compactions' } as never)).text)
+  expect(after).toContain('none yet')
+})
