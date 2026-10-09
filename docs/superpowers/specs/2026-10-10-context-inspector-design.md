@@ -217,3 +217,33 @@ P는 같은 경로·같은 범위의 가장 최근 Read(범위가 다른 것만 
 
 agent-profiler와 동일: 터미널은 상태줄·패널·토스트·명령 모두, VS Code 채팅 패널은 훅과 명령 텍스트 출력만.
 `claude -p`에서는 명령·UI 없이 기록만(내보내기는 `/context-export` 대신 session.end 시 자동 저장하지 않음 — v1).
+
+## 10. 프로브로 확인한 사실과 그에 따른 보정 (2026-10-10, 2.1.292 바이너리)
+
+프로브 mod로 실제 세션(`-p`, Read 두 번 + Bash, 이어서 `/compact`)을 관찰했다. 위 절과 충돌하면 이 절이 우선한다.
+
+1. **엔진이 이미 무변경 재읽기를 막는다.** 두 번째 Read의 `tool.call` 결과가 `result.type === 'file_unchanged'`이고,
+   모델이 읽는 텍스트는 짧은 안내문("Wasted call — file unchanged since your last Read…")이다.
+   → 재읽기 분류에 `engine-deduped`를 추가한다(조건: tool.call 결과 type이 `file_unchanged`; 분류 순서의 맨 앞).
+   낭비는 그 짧은 결과의 ≈토큰뿐이며, `reread-unchanged` 추천은 이 분류를 세지 않는다.
+2. **Read 범위는 결과에서 안다.** `result.file = { startLine, numLines, totalLines }`.
+   범위 키 = `startLine:numLines`(입력 offset/limit가 없어도), 전체 읽기 = `numLines >= totalLines`.
+   `large-read`는 "전체 읽기이면서 ≥ 8,000≈"로 판정한다.
+3. **같은 uuid가 다시 append된다.** 컴팩션 뒤 엔진은 유지한 행(예: 마지막 응답)을 같은 uuid로 다시 append한다.
+   → Ledger는 uuid로 중복을 제거한다: 이미 있는 uuid면 새 항목을 만들지 않고 그 항목을 live로, 현재 epoch로 되살린다.
+4. **컴팩션의 handle은 행 uuid와 같고, 요약 메시지에도 handle이 있다.** 따라서 "handle이 있으면 유지"는 틀리다.
+   → 유지 집합 K_h = (전 handle 집합 ∩ 후 handle 집합), K_t = 후 메시지 중 handle ∈ K_h인 메시지의 tool_use_id들.
+   항목은 `uuid ∈ K_h` 또는 `toolUseId ∈ K_t`이면 live 유지. 요약 행은 이후 `door: 'compaction'` append로 들어오므로
+   4.4의 "요약 메시지 항목 추가"는 append 경로가 맡는다(컴팩션 훅에서 따로 만들지 않는다).
+5. **컴팩션 후 엔진이 최근 읽은 파일을 `attachment`(name `file`)로 다시 넣는다**(본문에 `Called the Read tool with the following input: {"file_path":…}`).
+   → 이 항목의 target은 그 file_path, 재읽기 분석에서 Read와 같이 다루되 분류는 `restored`(엔진 복원; 컴팩션 유발 비용으로 집계).
+6. **행 순서**: `tool.call` 결과 → 그 tool-result append → (그 요청의) stop 청크. 컴팩션: `session.compact` 훅 → compaction 행들 append → 재-append.
+   → 보정 계수는 요청 쌍 대신 epoch 구간의 망원합(telescoping)으로 계산한다:
+   같은 ctx·epoch의 첫 표본 a와 마지막 표본 b에 대해 Δ = input_b − input_a, S = seq ∈ (seq_a, seq_b]인 항목들의 est 합.
+   S ≥ 2,000인 구간만 쓰고 `k = clamp(ΣΔ/ΣS, 0.5, 2.0)`.
+7. **턴 경계**: `turn.start`는 첫 attachment들 뒤에 오고 `/compact` 같은 명령에는 없다. 메인 턴 번호는 main ctx의 `door === 'prompt'` append마다 1 증가로 정한다.
+8. **attachment가 큰 점유자다**(skill_listing, agent_listing_delta, mcp_instructions_delta, hook_additional_context, environment …).
+   점유 분석의 범주 = tool-result는 도구 이름, attachment·hook-context는 `attachment:<name>`, 그 밖은 door.
+   content가 빈 행(`[]`)은 항목으로 만들지 않는다.
+9. **테스트**: 테스트 러너에서 `session.append`는 올릴 수 없다(답하는 훅이 건너뛰어짐). 그러므로 이벤트 → Ledger 변환은 순수 함수 `ingestAppend`로 두고 단위 테스트한다.
+   `session.compact`는 2.1.292 러너에서 올릴 수 있다. 어댑터 테스트는 2.1.292 바이너리로 돌린다.
