@@ -2,7 +2,7 @@
 
 A Claude Code mod that shows where an agent session's time goes: model wait, tool execution, subagents, test runs, repeated file reads, and engine overhead. It exports the session as an OTLP trace so you can open it in Jaeger or Grafana Tempo.
 
-Verified on Claude Code 2.1.292.
+Requires Claude Code 2.1.287 or later (desktop 2.1.286). Event shapes follow the 2.1.292 type declarations; the end-to-end probe (`claude -p`), the Jaeger import and the tests ran on Claude Code 2.1.280 with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`.
 
 ## What it shows
 
@@ -48,7 +48,7 @@ During development, load the folder directly:
 claude --plugin-dir ./agent-profiler
 ```
 
-On 2.1.292 hook modules of plugins are only loaded when `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` is set in the environment of the `claude` process.
+Mods are on by default from Claude Code 2.1.287 (desktop 2.1.286). Earlier builds need `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` in the environment of the `claude` process; 2.1.287+ ignores it.
 
 ## Commands
 
@@ -83,7 +83,11 @@ docker compose -f agent-profiler/examples/jaeger/docker-compose.yml up -d
 curl -sS -X POST -H 'content-type: application/json' \
   --data @$HOME/.claude/agent-profiler/<sessionId>.otlp.json \
   http://localhost:4318/v1/traces
-open http://localhost:16686        # service: claude-code
+```
+
+Open http://localhost:16686 in a browser and pick the service `claude-code`. Stop it with:
+
+```bash
 docker compose -f agent-profiler/examples/jaeger/docker-compose.yml down
 ```
 
@@ -109,7 +113,7 @@ Span names follow the GenAI semantic conventions: `chat <model>`, `execute_tool 
 - Hot reload resets in-memory state; only the on-disk snapshot survives.
 - `turn.start` fires only for main-loop turns. Subagents have no `turn` spans of their own: their `chat` and `execute_tool` spans hang directly under `invoke_agent`.
 - Background (async) subagents keep running after the Agent tool returns. Their `invoke_agent` span is still a child of `execute_tool Agent` but outlives it, and the completion notification starts an extra main turn.
-- Verified on Claude Code 2.1.292 only; event shapes may differ on other versions.
+- Event shapes follow the 2.1.292 type declarations; the end-to-end probe, Jaeger import and tests ran on 2.1.280 with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`. Other versions may differ.
 
 ## Tests
 
@@ -118,3 +122,5 @@ cd agent-profiler
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test
 claude plugin validate .
 ```
+
+(The variable is only needed before 2.1.287.)
