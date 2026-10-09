@@ -1,3 +1,4 @@
+import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 test('/profile reports tool calls the mod observed', async ($, on) => {
@@ -9,7 +10,7 @@ test('/profile reports tool calls the mod observed', async ($, on) => {
   await $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: 'toolu_1' })
   await $.classic.PostToolUse({ tool_name: 'Bash', tool_input: { command: 'npm test' }, tool_response: {}, tool_use_id: 'toolu_1', duration_ms: 5 } as never)
   await $.turn.complete({ turnId: 't1', reason: 'answer' } as never)
-  const answer = await $.command.run({ command: 'profile', args: '' })
+  const answer = await $.command.run({ command: 'profile', args: '' } as never)
   expect(answer.text).toContain('1 turn(s)')
   expect(answer.text).toContain('Bash npm test')
 })
@@ -36,7 +37,7 @@ test('turn.step chunks reach the caller unchanged', async ($, on) => {
 const DIR = '/Users/u/.claude/agent-profiler/sess-1'
 
 // The 2.1.280 test runner ignores per-test plugin options, so these run with the defaults (no endpoint).
-function oneSession(on: Parameters<Parameters<typeof test>[1]>[1], writes: string[] | 'deny') {
+function oneSession(on: On, writes: string[] | 'deny') {
   mock.env(on, { HOME: '/Users/u' })
   on('session.id', () => ({ value: 'sess-1' }))
   on('tool.call', () => ({ result: 'ok' }))

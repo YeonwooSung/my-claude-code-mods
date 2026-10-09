@@ -5,26 +5,31 @@ import { toOtlp } from '../hooks/core/otlp.ts'
 import { session, withSubagent } from './fixtures.ts'
 
 function spansOf(p: ReturnType<typeof session>) {
-  return toOtlp(p.snapshot(20_000), '0.1.0').resourceSpans[0].scopeSpans[0].spans
+  return toOtlp(p.snapshot(20_000), '0.1.0').resourceSpans[0]?.scopeSpans[0]?.spans ?? []
 }
 
 test('spans form a tree under the session root', () => {
   const spans = spansOf(session())
   const named = (name: string) => spans.filter(s => s.name === name)
-  const root = named('claude-code session')[0]
+  const first = (name: string) => {
+    const span = named(name)[0]
+    if (!span) throw new Error(`no ${name} span`)
+    return span
+  }
+  const root = first('claude-code session')
   expect(root.parentSpanId).toBeUndefined()
   expect(root.traceId).toBe(traceIdFromSession('s'))
-  const turn = named('turn')[0]
+  const turn = first('turn')
   expect(turn.parentSpanId).toBe(root.spanId)
   expect(named('chat m').length).toBe(2)
   expect(named('chat m').every(s => s.parentSpanId === turn.spanId)).toBe(true)
   expect(named('model.ttft').length).toBe(2)
-  const bash = named('execute_tool Bash')[0]
+  const bash = first('execute_tool Bash')
   expect(bash.parentSpanId).toBe(turn.spanId)
   expect(bash.startTimeUnixNano).toBe('2010000000')
   expect(bash.attributes).toContainEqual({ key: 'agent_profiler.bash.category', value: { stringValue: 'test' } })
   expect(bash.attributes).toContainEqual({ key: 'agent_profiler.exec_ms', value: { intValue: '5000' } })
-  expect(named('tool.approval_wait')[0].parentSpanId).toBe(bash.spanId)
+  expect(first('tool.approval_wait').parentSpanId).toBe(bash.spanId)
   expect(named('tool.exec').length).toBe(2)
 })
 

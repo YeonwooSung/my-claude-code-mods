@@ -26,9 +26,9 @@ test('a turn with one request and one tool', () => {
     id: 't1#0', ctx: 'main', turnId: 't1', index: 0, model: 'm', start: 10,
     firstContent: 300, thinkFirst: 300, thinkLast: 900, outFirst: 1000, end: 1100, usage, stopReason: 'tool_use',
   })
-  expect(s.tools[0].turnId).toBe('t1')
-  expect(s.tools[0].execMs).toBe(4000)
-  expect(s.tools[0].end).toBe(5300)
+  expect(s.tools[0]?.turnId).toBe('t1')
+  expect(s.tools[0]?.execMs).toBe(4000)
+  expect(s.tools[0]?.end).toBe(5300)
 })
 
 test('PostToolUse may arrive before tool.call returns, or before the tool is seen', () => {
@@ -69,7 +69,7 @@ test('a subagent turn first announced by turn.start moves out of the main contex
   p.stepStart(6, { turnId: 'sub-t', index: 0, model: 'h', agentId: 'ag1' })
   p.toolStart(7, { id: 'x', tool: 'Read', input: {} })
   const s = p.snapshot(8)
-  expect(s.tools[0].turnId).toBe('main-t')
+  expect(s.tools[0]?.turnId).toBe('main-t')
   expect(s.turns.find(t => t.id === 'sub-t')?.ctx).toBe('ag1')
 })
 

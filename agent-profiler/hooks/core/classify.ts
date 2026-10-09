@@ -97,7 +97,7 @@ function classifyGradleMvn(segment: string): BashCategory {
   const tokens = segment.split(/\s+/)
 
   for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i]
+    const token = tokens[i] ?? ''
 
     // Skip if it starts with - (flag or option)
     if (token.startsWith('-')) {
