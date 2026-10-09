@@ -52,11 +52,22 @@ test('false negatives fixed', () => {
   expect(classifyCommand('npx jest')).toBe('test')
 })
 
-test('gradle/mvn distinguish build from test', () => {
+test('playwright and cypress require subcommands', () => {
+  expect(classifyCommand('npx playwright install chromium')).toBe('other')
+  expect(classifyCommand('cypress open')).toBe('other')
+  expect(classifyCommand('npx playwright test')).toBe('test')
+  expect(classifyCommand('cypress run --spec x')).toBe('test')
+})
+
+test('gradle/mvn complex task detection', () => {
+  expect(classifyCommand('gradle test')).toBe('test')
+  expect(classifyCommand('mvn clean test')).toBe('test')
+  expect(classifyCommand('./gradlew clean test')).toBe('test')
+  expect(classifyCommand('./gradlew :app:test')).toBe('test')
+  expect(classifyCommand('mvn verify')).toBe('test')
+  expect(classifyCommand('mvn clean install')).toBe('build')
   expect(classifyCommand('./gradlew build -x test')).toBe('build')
   expect(classifyCommand('mvn package -Dmaven.test.skip=true')).toBe('build')
-  expect(classifyCommand('./gradlew test')).toBe('test')
-  expect(classifyCommand('mvn test')).toBe('test')
 })
 
 test('env assignments and wrappers stripped', () => {

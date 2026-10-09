@@ -92,8 +92,35 @@ function normalise(segment: string): string {
   return s
 }
 
+// Classify gradle/gradlew/mvn commands by analyzing task tokens
+function classifyGradleMvn(segment: string): BashCategory {
+  const tokens = segment.split(/\s+/)
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]
+
+    // Skip if it starts with - (flag or option)
+    if (token.startsWith('-')) {
+      // Special case: if this is -x and next token is test, skip both
+      if (token === '-x' && i + 1 < tokens.length && tokens[i + 1] === 'test') {
+        i++ // skip the test token too
+      }
+      continue
+    }
+
+    // Check if this is a test task
+    if (token === 'test' || token === 'verify' || token === 'check' || token.endsWith(':test')) {
+      return 'test'
+    }
+  }
+
+  return 'build'
+}
+
 const RULES: [BashCategory, RegExp][] = [
-  ['test', /^(jest|vitest|mocha|pytest|tox|nox|rspec|phpunit|ctest|cypress|playwright|nosetests|bats|karma|ava|jasmine)\b/],
+  ['test', /^(jest|vitest|mocha|pytest|tox|nox|rspec|phpunit|ctest|nosetests|bats|karma|ava|jasmine)\b/],
+  ['test', /^cypress\s+run\b/],
+  ['test', /^playwright\s+test\b/],
   ['test', /^(npm|bun)\s+(run\s+)?test\b/],
   ['test', /^npm\s+t\b/],
   ['test', /^(pnpm|yarn)\s+((-r|--filter\s+\S+)\s+)?(run\s+)?test\b/],
@@ -103,8 +130,6 @@ const RULES: [BashCategory, RegExp][] = [
   ['test', /^(python|python3)\s+-m\s+(unittest|pytest)\b/],
   ['test', /^make\s+(test|check)\b/],
   ['test', /^claude\s+plugin\s+test\b/],
-  ['test', /^(\.\/)?gradlew\s+test\b/],
-  ['test', /^(\.\/)?mvn\s+test\b/],
   ['install', /^(npm|pnpm|yarn|bun)\s+(install|i|add|ci)\b/],
   ['install', /^yarn\s*$/],
   ['install', /^(pip|pip3)\s+install\b/],
@@ -120,8 +145,6 @@ const RULES: [BashCategory, RegExp][] = [
   ['build', /^vite\s+build\b/],
   ['build', /^(cargo|go|swift|dotnet)\s+build\b/],
   ['build', /^docker\s+build\b/],
-  ['build', /^(\.\/)?gradlew\s+(build|package|compile)\b/],
-  ['build', /^(\.\/)?mvn\s+(build|package|compile)\b/],
   ['git', /^(git|gh)\b/],
   ['search', /^(rg|grep|ag|ack|find|fd|ls|tree|cat|head|tail|wc)\b/],
 ]
@@ -130,10 +153,17 @@ const RANK: BashCategory[] = ['test', 'build', 'install', 'git', 'search', 'othe
 
 function classifySegment(segment: string): BashCategory {
   const normalized = normalise(segment)
+
+  // Special handling for gradle/mvn commands
+  const cmd = normalized.replace(/^\.\//, '').split(/\s+/)[0]
+  if (cmd === 'gradle' || cmd === 'gradlew' || cmd === 'mvn') {
+    return classifyGradleMvn(normalized)
+  }
+
   return RULES.find(([, pattern]) => pattern.test(normalized))?.[0] ?? 'other'
 }
 
-export function classifyCommand(command: string | unknown): BashCategory {
+export function classifyCommand(command: string): BashCategory {
   if (typeof command !== 'string') return 'other'
 
   const blanked = blankOutStringLiterals(command)
