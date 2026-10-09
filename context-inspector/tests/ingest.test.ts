@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { extractEntities, isMentioned, type MessageLike } from '../hooks/core/entities.ts'
-import { backfill, ingestAppend, ingestCompaction } from '../hooks/core/ingest.ts'
+import { backfill, ingestAppend, ingestCompaction, ingestToolCall, ingestToolResult } from '../hooks/core/ingest.ts'
 import { Ledger } from '../hooks/core/ledger.ts'
 import { attachmentRow, editFile, okLines, promptRow, readFile, runBash, toolResultRow } from './fixtures.ts'
 
@@ -178,4 +178,71 @@ test('the ledger trims to 90% of its cap, out-of-window items first', () => {
   expect(s.items.length).toBe(9)
   expect(l.dropped).toBe(2)
   expect(l.droppedLive).toBe(0)
+})
+
+test('born stays at the first epoch; a kept item moves epoch, a dropped one does not, a later item is born in the new epoch', () => {
+  const l = new Ledger()
+  ingestAppend(l, promptRow('keep me', 'p1'))
+  runBash(l, 'b1', 'ls', 'dropped output', undefined)
+  const before: MessageLike[] = [{ role: 'user', text: 'keep me', toolUses: [], handle: 'p1' }]
+  ingestCompaction(l, { trigger: 'auto', messages: before }, { messages: before })
+  runBash(l, 'b2', 'ls', 'later output')
+  const [kept, dropped, later] = l.snapshot().items
+  expect([kept!.born, kept!.epoch, kept!.live]).toEqual([0, 1, true])
+  expect([dropped!.born, dropped!.epoch, dropped!.live]).toEqual([0, 0, false])
+  expect([later!.born, later!.epoch, later!.live]).toEqual([1, 1, true])
+})
+
+test('revive resets epoch to the current one for an item a compaction dropped', () => {
+  const l = new Ledger()
+  ingestAppend(l, promptRow('x', 'p2'))
+  ingestCompaction(l, { trigger: 'auto', messages: [] }, { messages: [] })
+  const item = l.snapshot().items[0]!
+  expect([item.epoch, item.live]).toEqual([0, false])
+  ingestAppend(l, promptRow('x', 'p2'))
+  expect(l.size).toBe(1)
+  expect([item.epoch, item.live, item.born]).toEqual([1, true, 0])
+})
+
+test('an item whose row is not kept stays live when its tool_use_id answers a kept message', () => {
+  const l = new Ledger()
+  ingestAppend(l, promptRow('go', 'p1'))
+  runBash(l, 'b1', 'ls', 'output')
+  const call: MessageLike = { role: 'assistant', text: '', toolUses: [{ tool_use_id: 'b1', tool: 'Bash', input: { command: 'ls' } }], handle: 'h-call' }
+  const before: MessageLike[] = [{ role: 'user', text: 'go', toolUses: [], handle: 'p1' }, call]
+  const after: MessageLike[] = [{ role: 'user', text: 'go', toolUses: [], handle: 'p1' }, call]
+  ingestCompaction(l, { trigger: 'auto', messages: before }, { messages: after })
+  const bash = l.snapshot().items.find(i => i.toolUseId === 'b1')!
+  expect(bash.live).toBe(true)
+  expect(bash.epoch).toBe(1)
+  expect(l.snapshot().compactions[0]!.droppedItems).toBe(0)
+})
+
+test('a subagent compaction drops only its own context and bumps only its epoch', () => {
+  const l = new Ledger()
+  ingestAppend(l, promptRow('main prompt', 'pm'))
+  ingestAppend(l, { ...promptRow('sub prompt', 'ps'), agentId: 'a1' })
+  runBash(l, 'bs', 'ls', 'sub output', 'a1')
+  ingestCompaction(l, { trigger: 'auto', agentId: 'a1', messages: [] }, { messages: [] })
+  const s = l.snapshot()
+  expect(s.items.filter(i => i.ctx === 'main').every(i => i.live)).toBe(true)
+  expect(s.items.filter(i => i.ctx === 'a1').every(i => !i.live)).toBe(true)
+  expect(l.epochOf('a1')).toBe(1)
+  expect(l.epochOf('main')).toBe(0)
+  expect(s.compactions[0]!.ctx).toBe('a1')
+  expect(s.compactions[0]!.droppedItems).toBe(2)
+})
+
+test('a denied or errored edit is not recorded', () => {
+  const l = new Ledger()
+  ingestAppend(l, promptRow('edit'))
+  const input = { file_path: '/a.ts', old_string: 'a', new_string: 'b' }
+  ingestToolCall(l, 'e1', 'Edit', undefined, input)
+  ingestToolResult(l, 'e1', { deny: 'no' })
+  ingestToolCall(l, 'e2', 'Edit', undefined, input)
+  ingestToolResult(l, 'e2', { isError: true })
+  expect(l.snapshot().edits.length).toBe(0)
+  ingestToolCall(l, 'e3', 'Edit', undefined, input)
+  ingestToolResult(l, 'e3', { result: {} })
+  expect(l.snapshot().edits.length).toBe(1)
 })
