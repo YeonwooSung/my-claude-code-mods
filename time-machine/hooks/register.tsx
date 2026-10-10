@@ -51,6 +51,8 @@ type Ctx = {
 }
 
 let ctx: Ctx | undefined
+// Session starts in this module load: each gets its own chunk names, which still sort in start order.
+let starts = 0
 let currentOptions: PluginOptions = {}
 
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error))
@@ -112,7 +114,8 @@ async function startSession($: EngineInterface): Promise<Ctx> {
     // a new session
   }
   rec ??= new Recorder({ sessionId, root, startedAt: Date.now(), loadId: LOAD_ID })
-  const c: Ctx = { rec, root, base, dir, writer: new ChunkWriter(LOAD_ID), writing: Promise.resolve(), inflight: 0, snapMs: [], live: new Map() }
+  starts += 1
+  const c: Ctx = { rec, root, base, dir, writer: new ChunkWriter(`${LOAD_ID}${String(starts).padStart(2, '0')}`), writing: Promise.resolve(), inflight: 0, snapMs: [], live: new Map() }
   const last = rec.lastSnapshot()
   if (last?.snapshot) c.head = last.snapshot.commit
   try {
@@ -136,6 +139,7 @@ async function live($: EngineInterface): Promise<Ctx | undefined> {
 }
 
 // Git, ready to use from this hook, or undefined with `c.off` saying why.
+// The first caller creates git and its readiness synchronously, so concurrent first calls share them.
 async function ensureGit($: EngineInterface, c: Ctx): Promise<ShadowGit | undefined> {
   if (c.off) return undefined
   if (c.git) {
@@ -143,13 +147,13 @@ async function ensureGit($: EngineInterface, c: Ctx): Promise<ShadowGit | undefi
     await c.ready
     return c.off ? undefined : c.git
   }
-  const home = await $.env.get('HOME').catch(() => undefined)
-  if (c.root === '/' || (home !== undefined && c.root.replace(/\/+$/, '') === home.replace(/\/+$/, ''))) {
-    c.off = 'the session root is the home or the root directory'
-  }
   const git = new ShadowGit(runnerOf($), `${c.base}/shadow.git`, c.root, `${c.base}/index/${c.rec.session.sessionId}`)
   c.git = git
   c.ready = (async () => {
+    const home = await $.env.get('HOME').catch(() => undefined)
+    if (c.root === '/' || (home !== undefined && c.root.replace(/\/+$/, '') === home.replace(/\/+$/, ''))) {
+      c.off = 'the session root is the home or the root directory'
+    }
     if (c.off) return
     try {
       await git.runner(['mkdir', '-p', `${c.base}/index`])
@@ -162,9 +166,17 @@ async function ensureGit($: EngineInterface, c: Ctx): Promise<ShadowGit | undefi
         if (!c.rec.get(0)) c.rec.baseline(Date.now(), { ...snap, ms })
         if (ms > TOO_SLOW_MS) c.off = `the baseline snapshot took ${ms}ms; per-step snapshots would slow every tool`
       }
-      await prune($, c, git)
     } catch (error) {
       c.off = `git unavailable: ${message(error)}`
+    }
+    if (c.off) return
+    // Off every tool's path: pruning and gc run detached, and their failures never turn snapshots off.
+    try {
+      $.clock.after(0, () => {
+        prune($, c, git).catch(() => undefined)
+      })
+    } catch {
+      // pruned another day
     }
   })()
   await c.ready
@@ -214,7 +226,7 @@ async function prune($: EngineInterface, c: Ctx, git: ShadowGit): Promise<void> 
     try {
       const meta = JSON.parse(String(await $.fs.read(`${target}/meta.json`))) as { startedAt?: number }
       if (Date.now() - Number(meta.startedAt ?? Date.now()) < days * DAY || !isInside(target, sessions)) continue
-      await git.runner(['rm', '-rf', target])
+      await runnerOf($)(['rm', '-rf', target])
       await git.deleteRefs(`refs/tm/${entry.name}/`)
     } catch {
       // leave it for next time
@@ -246,6 +258,19 @@ async function settle($: EngineInterface, c: Ctx, step: Step | undefined, counte
   }
 }
 
+// Origins a person typed: the only ones allowed to change files or run commands through /tm.
+const TYPED = new Set(['composer', 'bridge', 'sdk'])
+
+// The subcommand, when `args` would change files or run commands (restore/branch --yes, rerun --write/--isolated).
+function changesFiles(args: string): string | undefined {
+  const words = args.trim().split(/\s+/).filter(w => w !== '')
+  const sub = words.find(w => !w.startsWith('--'))
+  const flags = new Set(words.filter(w => w.startsWith('--')))
+  if ((sub === 'restore' || sub === 'branch') && flags.has('--yes')) return sub
+  if (sub === 'rerun' && (flags.has('--write') || flags.has('--isolated'))) return sub
+  return undefined
+}
+
 const num = (word: string | undefined): number | undefined => (word !== undefined && /^\d+$/.test(word) ? Number(word) : undefined)
 
 async function restore($: EngineInterface, c: Ctx, n: number, yes: boolean, branch?: string): Promise<string> {
@@ -261,11 +286,16 @@ async function restore($: EngineInterface, c: Ctx, n: number, yes: boolean, bran
   const asked = c.rec.get(n)!
   if (!yes) return renderRestorePlan(asked, target, files, false, name)
   if (name !== undefined && c.rec.branches.has(name)) return `time-machine: branch '${name}' already exists`
+  // A name git would refuse as a ref would fail only after the work tree was rewritten.
+  if (name !== undefined && (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name) || name.includes('..') || name.endsWith('.lock') || name.endsWith('.')))
+    return `time-machine: '${name}' is not a usable branch name (letters, digits, '.', '_', '-')`
   // Applied first: a refused restore (the work tree moved since `from`) leaves no fork and no restore step.
-  await git.restore(target.snapshot.commit, refOf(c), from)
-  c.head = target.snapshot.commit
+  // The ref is the new branch's when branching, so the branch left behind keeps its history.
+  const ref = name !== undefined ? `refs/tm/${c.rec.session.sessionId}/${name}` : refOf(c)
+  const commit = await git.restore(target.snapshot.commit, ref, from, `restore to step ${n}${name !== undefined ? ` on branch ${name}` : ''}`)
+  c.head = commit
   if (name !== undefined) c.rec.fork(name, n, Date.now())
-  const snapshot: SnapshotRef = { commit: target.snapshot.commit, changed: files.length > 0, files: files.slice(0, 200), filesTotal: files.length, ms: 0 }
+  const snapshot: SnapshotRef = { commit, changed: files.length > 0, files: files.slice(0, 200), filesTotal: files.length, ms: 0 }
   const step = c.rec.begin({ id: `restore-${Date.now()}`, tool: 'restore', kind: 'restore', input: { to: n, from }, target: `step ${n}`, at: Date.now() })
   c.rec.finish(step, Date.now(), { snapshot })
   await persist($, c)
@@ -341,7 +371,12 @@ async function rerun($: EngineInterface, c: Ctx, n: number, write: boolean, isol
   if (isMutating(step.tool, input, currentOptions.skipSearchBash === true) && !write)
     return `time-machine: step ${n} (${step.tool}) can change files; add --write to run it again here (a snapshot is taken after it)`
   c.rerunOf = n
-  const answer = await $.tool.call({ tool: step.tool, ...input } as never)
+  let answer: unknown
+  try {
+    answer = await $.tool.call({ tool: step.tool, ...input } as never)
+  } finally {
+    c.rerunOf = undefined
+  }
   const text = resultText(answer)
   const now = step.test ? parseTestOutput(text, summarizeResult(answer).isError) : undefined
   return renderRerun(step, compareOutputs(step.result, text, step.test, now), 'here, against the current files')
@@ -550,7 +585,10 @@ export const register: Register = (on, options) => {
     try {
       const c = await live($)
       if (!c) return { text: 'time-machine: not recording (the session could not be read)' }
-      return { text: await runTm($, c, e.args ?? '') }
+      const args = e.args ?? ''
+      const sub = changesFiles(args)
+      if (sub !== undefined && !TYPED.has(e.origin?.kind ?? '')) return { text: `time-machine: ${sub} changes files or runs commands and only runs when you type it` }
+      return { text: await runTm($, c, args) }
     } catch (error) {
       return { text: `time-machine: ${message(error)}` }
     }

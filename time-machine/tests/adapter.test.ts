@@ -103,3 +103,23 @@ test('a tool call that throws is still recorded as a finished, failed step, and 
   expect(search.endedAt).toBeDefined()
   expect(search.result?.isError).toBe(true)
 })
+
+test('/tm restore --yes runs only from an origin a person typed', async ($, on) => {
+  await recordSome($, on, new Map())
+  const run = async (args: string, kind: string): Promise<string> =>
+    String((await $.command.run({ command: 'tm', args, origin: { kind } } as never)).text)
+  expect(await run('restore 1 --yes', 'channel')).toBe('time-machine: restore changes files or runs commands and only runs when you type it')
+  expect(await run('rerun 2 --write', 'scheduled-trigger')).toContain('rerun changes files or runs commands')
+  expect(await run('restore 1', 'channel')).toContain('snapshots are off')
+  expect(await run('restore 1 --yes', 'composer')).toContain('snapshots are off')
+})
+
+test('each session start in one module load writes chunks under its own names', async ($, on) => {
+  const writes = new Map<string, string>()
+  world(on, writes)
+  await $.session.start({ cwd: '/r', surface: null, isInteractive: false } as never)
+  await $.session.start({ cwd: '/r', surface: null, isInteractive: false } as never)
+  const names = [...writes.keys()].filter(p => p.endsWith('.jsonl')).map(p => p.slice(p.lastIndexOf('/') + 1))
+  expect(names.length).toBe(2)
+  expect(names[0]! < names[1]!).toBe(true)
+})

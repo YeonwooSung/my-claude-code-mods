@@ -5,6 +5,8 @@ export type RunOptions = { env?: Record<string, string>; cwd?: string; timeoutMs
 export type Runner = (argv: readonly string[], opts?: RunOptions) => Promise<RunResult>
 export type SnapResult = { commit: string; changed: boolean; files: FileChange[]; filesTotal: number }
 
+type GitOptions = { index?: string; workTree?: string; timeoutMs?: number; runner?: Runner }
+
 export const MAX_FILES = 200
 const TIMEOUT_MS = 30_000
 const IDENTITY = {
@@ -59,17 +61,27 @@ export class ShadowGit {
     readonly indexFile: string,
   ) {}
 
-  // One operation at a time: parallel tool calls share the index.
-  serial<T>(fn: () => Promise<T>): Promise<T> {
-    const run = this.queue.then(fn, fn)
+  // One operation at a time: parallel tool calls share the index. The runner is the one set when the
+  // operation was asked for, not whichever hook set it last by the time the operation runs.
+  serial<T>(fn: (run: Runner) => Promise<T>): Promise<T> {
+    const runner = this.runner
+    const go = (): Promise<T> => fn(runner)
+    const run = this.queue.then(go, go)
     this.queue = run.catch(() => undefined)
     return run
   }
 
-  async git(args: readonly string[], opts: { index?: string; workTree?: string; timeoutMs?: number } = {}): Promise<string> {
+  async git(args: readonly string[], opts: GitOptions = {}): Promise<string> {
+    const result = await this.exec(args, opts)
+    if (result.exitCode !== 0) throw new GitError(args, result)
+    return result.stdout
+  }
+
+  // The raw result, a nonzero exit included.
+  exec(args: readonly string[], opts: GitOptions = {}): Promise<RunResult> {
     const workTree = opts.workTree ?? this.workTree
     const argv = ['git', `--git-dir=${this.gitDir}`, `--work-tree=${workTree}`, '-c', 'core.quotepath=off', ...args]
-    const result = await this.runner(argv, {
+    return (opts.runner ?? this.runner)(argv, {
       cwd: workTree,
       env: {
         ...IDENTITY,
@@ -82,8 +94,6 @@ export class ShadowGit {
       },
       timeoutMs: opts.timeoutMs ?? TIMEOUT_MS,
     })
-    if (result.exitCode !== 0) throw new GitError(args, result)
-    return result.stdout
   }
 
   // Idempotent: re-running init on an existing repository leaves it as it is.
@@ -106,71 +116,80 @@ export class ShadowGit {
     if (result.exitCode !== 0) throw new GitError(['sync-excludes'], result)
   }
 
-  // Stage the work tree; commit only when its tree differs from `parent`'s.
+  // Stage the work tree; commit only when its tree differs from the parent's. The parent is the ref's
+  // commit when it is read, in turn, so parallel snapshots chain; `parent` is used only while the ref
+  // does not exist yet (undefined for the baseline).
   snapshot(parent: string | undefined, message: string, ref: string): Promise<SnapResult> {
-    return this.serial(async () => {
-      await this.git(['add', '-A'])
-      const tree = (await this.git(['write-tree'])).trim()
-      if (parent !== undefined) {
-        const parentTree = (await this.git(['rev-parse', `${parent}^{tree}`])).trim()
-        if (parentTree === tree) return { commit: parent, changed: false, files: [], filesTotal: 0 }
+    return this.serial(async runner => {
+      const at = await this.exec(['rev-parse', '--verify', '-q', ref], { runner })
+      const base = at.exitCode === 0 && at.stdout.trim() !== '' ? at.stdout.trim() : parent
+      await this.git(['add', '-A'], { runner })
+      const tree = (await this.git(['write-tree'], { runner })).trim()
+      if (base !== undefined) {
+        const baseTree = (await this.git(['rev-parse', `${base}^{tree}`], { runner })).trim()
+        if (baseTree === tree) return { commit: base, changed: false, files: [], filesTotal: 0 }
       }
-      const commit = (await this.git(['commit-tree', tree, ...(parent !== undefined ? ['-p', parent] : []), '-m', message])).trim()
-      await this.git(['update-ref', ref, commit])
-      if (parent === undefined) {
-        const listed = (await this.git(['ls-tree', '-r', '--name-only', commit])).split('\n').filter(l => l !== '')
+      const commit = (await this.git(['commit-tree', tree, ...(base !== undefined ? ['-p', base] : []), '-m', message], { runner })).trim()
+      await this.git(['update-ref', ref, commit], { runner })
+      if (base === undefined) {
+        const listed = (await this.git(['ls-tree', '-r', '--name-only', commit], { runner })).split('\n').filter(l => l !== '')
         return { commit, changed: true, files: [], filesTotal: listed.length }
       }
-      const files = parseNameStatus(await this.git(['diff', '--name-status', '-M', parent, commit]))
+      const files = parseNameStatus(await this.git(['diff', '--name-status', '-M', base, commit], { runner }))
       return { commit, changed: true, files: files.slice(0, MAX_FILES), filesTotal: files.length }
     })
   }
 
   nameStatus(a: string, b: string): Promise<FileChange[]> {
-    return this.serial(async () => parseNameStatus(await this.git(['diff', '--name-status', '-M', a, b])))
+    return this.serial(async runner => parseNameStatus(await this.git(['diff', '--name-status', '-M', a, b], { runner })))
   }
 
   diffText(a: string, b: string): Promise<{ stat: string; patch: string }> {
-    return this.serial(async () => ({ stat: await this.git(['diff', '--stat', a, b]), patch: await this.git(['diff', a, b]) }))
+    return this.serial(async runner => ({ stat: await this.git(['diff', '--stat', a, b], { runner }), patch: await this.git(['diff', a, b], { runner }) }))
   }
 
   // The work tree made to match `target`: tracked files rewritten, files `target` lacks removed, ignored
   // files untouched. `from` is the commit the caller just snapshotted; if the work tree no longer
-  // matches it, nothing is touched, so unsnapshotted work is never lost.
-  restore(target: string, ref: string, from: string): Promise<void> {
-    return this.serial(async () => {
-      await this.git(['add', '-A'])
-      const tree = (await this.git(['write-tree'])).trim()
-      const fromTree = (await this.git(['rev-parse', `${from}^{tree}`])).trim()
+  // matches it, nothing is touched, so unsnapshotted work is never lost. The result is a new commit with
+  // `target`'s tree and both `from` and `target` as parents, so nothing recorded becomes unreachable;
+  // `ref` points at it and it is returned.
+  restore(target: string, ref: string, from: string, message: string): Promise<string> {
+    return this.serial(async runner => {
+      await this.git(['add', '-A'], { runner })
+      const tree = (await this.git(['write-tree'], { runner })).trim()
+      const fromTree = (await this.git(['rev-parse', `${from}^{tree}`], { runner })).trim()
       if (tree !== fromTree) throw new Error('the work tree changed since the last snapshot; run the restore again')
-      await this.git(['read-tree', '-u', '--reset', target])
-      await this.git(['update-ref', ref, target])
+      await this.git(['read-tree', '-u', '--reset', target], { runner })
+      const commit = (await this.git(['commit-tree', `${target}^{tree}`, '-p', from, '-p', target, '-m', message], { runner })).trim()
+      await this.git(['update-ref', ref, commit], { runner })
+      return commit
     })
   }
 
   updateRef(ref: string, commit: string): Promise<void> {
-    return this.serial(async () => {
-      await this.git(['update-ref', ref, commit])
+    return this.serial(async runner => {
+      await this.git(['update-ref', ref, commit], { runner })
     })
   }
 
   // A snapshot's files written into `dir` (existing and empty) through a throwaway index beside it.
   exportTo(commit: string, dir: string): Promise<void> {
-    return this.serial(async () => {
-      await this.git(['read-tree', '-u', '--reset', commit], { index: `${dir}.index`, workTree: dir })
+    return this.serial(async runner => {
+      await this.git(['read-tree', '-u', '--reset', commit], { index: `${dir}.index`, workTree: dir, runner })
     })
   }
 
   deleteRefs(prefix: string): Promise<void> {
-    return this.serial(async () => {
-      const refs = (await this.git(['for-each-ref', '--format=%(refname)', prefix])).split('\n').filter(l => l !== '')
-      for (const ref of refs) await this.git(['update-ref', '-d', ref])
+    return this.serial(async runner => {
+      const refs = (await this.git(['for-each-ref', '--format=%(refname)', prefix], { runner })).split('\n').filter(l => l !== '')
+      for (const ref of refs) await this.git(['update-ref', '-d', ref], { runner })
     })
   }
 
+  // Only when git judges it due; never prunes recent loose objects.
   gc(): Promise<void> {
-    return this.serial(async () => {
-      await this.git(['gc', '--prune=now', '--quiet'], { timeoutMs: 120_000 })
+    return this.serial(async runner => {
+      await this.git(['gc', '--auto', '--quiet'], { timeoutMs: 120_000, runner })
     })
   }
 }
