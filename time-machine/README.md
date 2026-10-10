@@ -28,23 +28,23 @@ Claude Code 2.1.287 이상(mods 기본 활성화)과 `git`이 필요하다.
 
 | 명령 | 내용 |
 |---|---|
-| `/tm` 또는 `/tm timeline [--all] [--branch b]` | 타임라인 트리(최근 30 step, `--all`은 전체). step마다 번호·도구·대상·결과 한 줄·스냅샷 표식·테스트 요약 |
+| `/tm` 또는 `/tm timeline [--all] [--branch b]` | 타임라인 트리(최근 30 step, `--all`은 전체). step마다 번호·도구·대상과 표식(테스트 결과, 거부, 오류, 스냅샷) |
 | `/tm show <n>` | step 상세: 입력(잘린 표시), 결과 head, 바뀐 파일, 테스트 결과, 스냅샷 커밋·시간 |
 | `/tm diff <a> [b]` | step a와 b(기본: 현재) 스냅샷 사이 `diff --stat`과 패치(최대 400줄) |
-| `/tm why [n]` | 실패한 테스트 실행 n(기본: 마지막 실패)의 용의자와 fixed-by |
+| `/tm why [n]` | 테스트 실행 n(기본: 마지막 실패)의 용의자와 fixed-by. 통과한 실행은 용의자가 없다 |
 | `/tm restore <n> [--yes]` | step n의 파일 상태로 되돌린다. `--yes` 없이는 dry run |
 | `/tm branch <n> [name] [--yes]` | restore와 같되 이후 step을 새 branch에 기록 |
 | `/tm compare <a> <b>` | 두 경로(branch 또는 `session:<id>[/<branch>]`) 비교: 분기점, 각자의 step, 파일 diff 통계, 마지막 테스트 결과 |
 | `/tm rerun <n> [--write] [--isolated]` | step n의 입력으로 도구를 다시 실행하고 결과를 비교 |
-| `/tm sessions` | 이 프로젝트의 기록된 세션 목록(시작 시각, step 수, branch) |
+| `/tm sessions` | 이 프로젝트의 기록된 세션 목록(세션 id, "(this session)" 표시, 시작 시각) |
 | `/tm-pane` | 실시간 타임라인 패널 |
 
-상태줄: `tm ⑫ · 5 snaps · 41ms` (마지막 step 번호, 스냅샷 수, 평균 스냅샷 시간). 스냅샷이 꺼지면 `tm ⑫ · snapshots off`와 이유가 보인다.
+상태줄: `tm ⑫ · 5 snaps · 41ms` (마지막 step 번호, 스냅샷 수, 평균 스냅샷 시간). 스냅샷이 꺼지면 상태줄에는 `tm ⑫ · snapshots off`만 보이고, 이유는 `/tm` 타임라인 머리(`snapshots off: …`)와 다른 하위 명령의 메시지에 나온다.
 
 ## 어떻게 기록하나
 
 - **섀도 git**: `<storeDir>/<projectKey>/shadow.git`(bare 저장소)에 스냅샷을 커밋한다. `projectKey`는 프로젝트 루트의 이름과 경로 해시 앞 8자. 세션마다 인덱스(`index/<sessionId>`)를 따로 쓰고, ref는 `refs/tm/<sessionId>/<branch>`.
-  섀도 저장소의 git 환경(`GIT_DIR`, `GIT_WORK_TREE`, `GIT_OBJECT_DIRECTORY` 등)은 고정되어 있어 사용자의 `.git`에는 아무것도 쓰지 않는다. `.gitignore`를 따른다. 사용자의 `.git/info/exclude`는 시작할 때 섀도 저장소로 복사된다(`.git`이 파일인 linked worktree는 제외).
+  섀도 저장소의 git 환경(`GIT_DIR`, `GIT_WORK_TREE`, `GIT_OBJECT_DIRECTORY` 등)은 고정되어 있어 사용자의 `.git`에는 아무것도 쓰지 않는다. `.gitignore`를 따른다. 사용자의 `.git/info/exclude`는 세션에서 git을 처음 쓸 때(첫 변경성 도구 또는 git을 쓰는 첫 `/tm` 명령) 섀도 저장소로 복사되며 이후 갱신되지 않는다(`.git`이 파일인 linked worktree는 제외).
 - **스냅샷 시점**: 변경성 도구(Edit, MultiEdit, Write, NotebookEdit, Bash, 알 수 없는 도구·MCP 도구) 뒤에 찍는다. Bash는 기본으로 모두 찍는다 — `cat > f <<EOF` 같은 리디렉션도 파일을 쓰기 때문이다. 변경이 없으면 커밋하지 않는다. 설정 `skipSearchBash`를 켜면 검색으로 분류된 Bash(rg, grep, ls, cat …)는 건너뛴다. 읽기 전용 도구는 찍지 않는다.
 - **외부 변경 step**: 변경성 도구 *전*에 현재 트리가 직전 스냅샷과 다르면(사람이 IDE에서 고친 것 등) 그 차이를 `external` step으로 기록해 에이전트 탓으로 돌리지 않는다.
 - **베이스라인**: 첫 변경성 도구 직전(또는 git을 쓰는 첫 `/tm` 명령)에 찍는다. 세션 시작을 늦추지 않기 위해서다.
@@ -64,7 +64,7 @@ Claude Code 2.1.287 이상(mods 기본 활성화)과 `git`이 필요하다.
 ## 인과 (`/tm why`)
 
 - **기준**: 같은 branch에서 실패한 실행 F 이전의 마지막 *통과* 테스트 실행(없으면 베이스라인). 기준 스냅샷부터 F 스냅샷 사이에 바뀐 파일마다 점수를 매긴다.
-- **점수 규칙**: 실패 출력에 경로가 언급되면 +100, 파일명(basename)만 언급되면 +60, 실패 위치(file:line)가 가리키면 +50, 최근성(F에 가까울수록) 0–20, 바뀐 줄 수(log2) 0–10. 상위 5개를 근거와 바꾼 step 번호와 함께 보인다.
+- **점수 규칙**: 실패 출력에 경로가 언급되면 +100, 파일명(basename)만 언급되면 +60, 실패 위치(file:line)가 가리키면 +50, 최근성(F에 가까울수록) 0–20, 그 파일을 바꾼 step 수 ×2, 최대 10. 상위 5개를 근거와 바꾼 step 번호와 함께 보인다.
 - **fixed by**: F 다음 첫 통과 실행 P가 있으면, F와 P 사이에 바뀐 파일과 step을 보인다. 실패 수가 줄면(예: 3 failed → 1 failed) "improved"로 표시한다.
 - 이것은 **추론이지 증명이 아니다.** 순위는 단서일 뿐이다.
 
@@ -81,7 +81,7 @@ Claude Code 2.1.287 이상(mods 기본 활성화)과 `git`이 필요하다.
 
 - 기본: 같은 입력으로 도구를 다시 부른다(권한 확인을 거친다). 읽기 전용 도구만 허용하며, 변경성 도구는 `--write`가 필요하다(실행 뒤 스냅샷). 결과가 해시로 같으면 "identical", 다르면 줄 diff 요약, 테스트면 통과/실패 변화를 보인다.
 - `--isolated`(Bash만): 그 step 직전 스냅샷을 임시 디렉터리(`<storeDir>/<projectKey>/tmp/…`)에 풀어 거기서 실행한다. 무시 파일(의존성 등)이 없으므로 best effort이고, **권한 다이얼로그를 거치지 않는다.** 그래서 실행할 명령을 먼저 출력에 보이고, 사용자가 직접 입력했을 때만 실행된다. `rerun --write`도 마찬가지다.
-- 저장된 입력이 잘렸거나 마스킹된 step은 이번 로드에서 기록한 원본 입력이 메모리에 있을 때만 재실행할 수 있다. 다른 로드(리로드·재개)에서는 재실행할 수 없다.
+- 저장된 입력이 잘렸거나 마스킹된 step은 이번 로드에서 기록한 원본 입력이 메모리에 있을 때만(최근 500 step) 재실행할 수 있다. 다른 로드(리로드·재개)에서는 재실행할 수 없다.
 - 모델 응답은 재실행하지 않는다.
 
 ## 파일 복구 ≠ 결정적 재현
@@ -103,8 +103,10 @@ v2 설계 요약(구현하지 않음): (1) `turn.step` 훅이 기록된 청크�
 
 ```
 <storeDir>/<projectKey>/
-  shadow.git/                       # 섀도 저장소 (+ index/<sessionId>)
-  sessions/<sessionId>/meta.json    # { sessionId, root, startedAt, model?, branches }
+  shadow.git/                       # 섀도 저장소
+  index/<sessionId>                 # 세션별 git 인덱스
+  tmp/                              # --isolated 재실행용 임시 작업 디렉터리
+  sessions/<sessionId>/meta.json    # { sessionId, root, startedAt }
   sessions/<sessionId>/<load>-<n>.jsonl
 ```
 
@@ -120,7 +122,7 @@ JSONL 레코드 종류: `session`, `turn`, `step`, `model`, `branch`. 청크는 
 
 ## 한계
 
-- git이 없거나, 루트가 HOME 또는 `/`이거나, 베이스라인 스냅샷이 5초를 넘으면 스냅샷이 꺼진다(타임라인은 계속 기록). 이유는 상태줄과 `/tm`에 보인다.
+- git이 없거나, 루트가 HOME 또는 `/`이거나, 베이스라인 스냅샷이 5초를 넘으면 스냅샷이 꺼진다(타임라인은 계속 기록). 이유는 `/tm` 타임라인 머리와 다른 하위 명령의 메시지에 보인다(상태줄에는 `snapshots off`만).
 - 중첩된 git 저장소에 커밋이 없으면 `git add -A`가 실패해 스냅샷이 꺼진다. 중첩 저장소의 내용은 스냅샷되지 않는다(gitlink로만 남는다).
 - 큰 저장소에서는 변경성 도구마다 스냅샷 시간이 더해진다(상태줄에 평균).
 - 프로젝트 안에서 계속 바뀌는 로그 파일이 있으면 변경성 도구마다 앞에 `external change` step이 생긴다.
