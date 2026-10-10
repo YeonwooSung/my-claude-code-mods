@@ -1,0 +1,32 @@
+{
+  "name": "time-machine",
+  "version": "0.1.0",
+  "description": "Agent Time Machine: a branching timeline of tool calls with shadow-git snapshots — inspect, diff, explain test failures, restore, branch, compare, re-run",
+  "author": { "name": "YeonwooSung" },
+  "userConfig": {
+    "storeDir": {
+      "type": "string",
+      "title": "Store directory",
+      "description": "Where snapshots and timelines are kept, one folder per project (empty: ~/.claude/time-machine)",
+      "default": ""
+    },
+    "retentionDays": {
+      "type": "number",
+      "title": "Keep sessions for (days)",
+      "description": "Recorded sessions older than this are deleted at session start, at most once a day (0 keeps everything)",
+      "default": 14
+    },
+    "recordModelOutput": {
+      "type": "boolean",
+      "title": "Record model text",
+      "description": "Store the model's response text and the prompt head with each turn (off: lengths and hashes only)",
+      "default": false
+    },
+    "skipSearchBash": {
+      "type": "boolean",
+      "title": "Skip snapshots after search commands",
+      "description": "Do not snapshot after Bash commands classified as search (rg, grep, ls, cat …); off snapshots every Bash, since a redirect can still write",
+      "default": false
+    }
+  }
+}

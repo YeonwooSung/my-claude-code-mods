@@ -159,3 +159,6 @@ agent-profiler/.claude-plugin/types/
 
 # context-inspector: type declarations the engine (or the tsc gate) lays beside the mod
 context-inspector/.claude-plugin/types/
+
+# time-machine: type declarations the engine (or the tsc gate) lays beside the mod
+time-machine/.claude-plugin/types/
