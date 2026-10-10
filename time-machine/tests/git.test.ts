@@ -83,20 +83,31 @@ test('operations run one at a time, in the order they were asked', async () => {
 })
 
 test('restore, export, init, deleteRefs and gc issue the expected commands', async () => {
-  const f = fake(sub => (sub === 'for-each-ref' ? { stdout: 'refs/tm/old/main\nrefs/tm/old/b1\n' } : undefined))
+  const f = fake(sub =>
+    sub === 'for-each-ref' ? { stdout: 'refs/tm/old/main\nrefs/tm/old/b1\n' } : sub === 'write-tree' || sub === 'rev-parse' ? { stdout: 't\n' } : undefined,
+  )
   const g = G(f)
-  await g.restore('c3', 'refs/tm/s1/main')
-  expect(f.calls[0]!.argv.slice(-4)).toEqual(['read-tree', '-u', '--reset', 'c3'])
-  expect(f.calls[1]!.argv.slice(-3)).toEqual(['update-ref', 'refs/tm/s1/main', 'c3'])
+  await g.restore('c3', 'refs/tm/s1/main', 'c2')
+  expect(f.subs()).toEqual(['add', 'write-tree', 'rev-parse', 'read-tree', 'update-ref'])
+  expect(f.calls[3]!.argv.slice(-4)).toEqual(['read-tree', '-u', '--reset', 'c3'])
+  expect(f.calls[4]!.argv.slice(-3)).toEqual(['update-ref', 'refs/tm/s1/main', 'c3'])
   await g.exportTo('c3', '/s/tmp/x')
-  const exp = f.calls[2]!
+  const exp = f.calls[5]!
   expect(exp.argv).toContain('--work-tree=/s/tmp/x')
   expect(exp.env!.GIT_INDEX_FILE).toBe('/s/tmp/x.index')
   expect(exp.cwd).toBe('/s/tmp/x')
   await g.init()
-  expect(f.calls[3]!.argv).toEqual(['git', 'init', '--bare', '--quiet', '/s/shadow.git'])
+  expect(f.calls[6]!.argv).toEqual(['git', 'init', '--bare', '--quiet', '/s/shadow.git'])
+  expect(f.calls[7]!.argv).toEqual([
+    'sh',
+    '-c',
+    'if [ -f "$1" ]; then mkdir -p "$(dirname "$2")" && cp "$1" "$2"; fi',
+    'tm-sync',
+    '/r/.git/info/exclude',
+    '/s/shadow.git/info/exclude',
+  ])
   await g.deleteRefs('refs/tm/old/')
-  expect(f.calls.slice(5).map(c => c.argv.slice(-3))).toEqual([
+  expect(f.calls.slice(9).map(c => c.argv.slice(-3))).toEqual([
     ['update-ref', '-d', 'refs/tm/old/main'],
     ['update-ref', '-d', 'refs/tm/old/b1'],
   ])
@@ -113,4 +124,41 @@ test('parseNameStatus and isInside', () => {
   expect(isInside('/s/tmp', '/s/tmp')).toBe(false)
   expect(isInside('/s/tmp/../etc', '/s/tmp')).toBe(false)
   expect(isInside('/s/tmpx/a', '/s/tmp')).toBe(false)
+  expect(isInside('/s/tmp/x/', '/s/tmp')).toBe(true)
+  expect(isInside('/s/tmp/', '/s/tmp')).toBe(false)
+  expect(isInside('/s/tmp/.', '/s/tmp')).toBe(false)
+  expect(isInside('/s/tmp//x', '/s/tmp')).toBe(false)
+  expect(isInside('/s/tmp/./x', '/s/tmp')).toBe(false)
+  expect(isInside('/a', '/')).toBe(false)
+  expect(isInside('/a', '')).toBe(false)
+})
+
+test('every git call pins the repository, objects and index through its environment', async () => {
+  const f = fake(sub => (sub === 'write-tree' ? { stdout: 't\n' } : sub === 'commit-tree' ? { stdout: 'c\n' } : undefined))
+  await G(f).snapshot(undefined, 'b', 'r')
+  for (const c of f.calls) {
+    expect(c.env!.GIT_DIR).toBe('/s/shadow.git')
+    expect(c.env!.GIT_WORK_TREE).toBe('/r')
+    expect(c.env!.GIT_OBJECT_DIRECTORY).toBe('/s/shadow.git/objects')
+    expect(c.env!.GIT_ALTERNATE_OBJECT_DIRECTORIES).toBe('')
+    expect(c.env!.GIT_NAMESPACE).toBe('')
+    expect(c.env!.GIT_INDEX_FILE).toBe('/s/index/s1')
+  }
+})
+
+test('restore refuses, touching nothing, when the work tree moved past the snapshot', async () => {
+  const f = fake(sub => (sub === 'write-tree' ? { stdout: 'now\n' } : sub === 'rev-parse' ? { stdout: 'then\n' } : undefined))
+  let error: unknown
+  try {
+    await G(f).restore('c3', 'r', 'c2')
+  } catch (e) {
+    error = e
+  }
+  expect(String((error as Error).message)).toBe('the work tree changed since the last snapshot; run the restore again')
+  expect(f.subs()).toEqual(['add', 'write-tree', 'rev-parse'])
+})
+
+test('GitError prefers the fatal or error line over warnings', () => {
+  const e = new GitError(['add'], { exitCode: 1, stdout: '', stderr: 'warning: adding embedded git repository\nhint: x\nfatal: boom\n' })
+  expect(e.message).toBe('git add failed (1): fatal: boom')
 })

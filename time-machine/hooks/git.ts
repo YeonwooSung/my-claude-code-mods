@@ -19,7 +19,9 @@ export class GitError extends Error {
     readonly args: readonly string[],
     readonly result: RunResult,
   ) {
-    super(`git ${args[0] ?? ''} failed (${result.exitCode}): ${result.stderr.trim().split('\n')[0] ?? ''}`)
+    const lines = result.stderr.split('\n').map(l => l.trim()).filter(l => l !== '')
+    const line = lines.find(l => l.startsWith('fatal:') || l.startsWith('error:')) ?? lines[0] ?? ''
+    super(`git ${args[0] ?? ''} failed (${result.exitCode}): ${line}`)
   }
 }
 
@@ -35,10 +37,13 @@ export function parseNameStatus(out: string): FileChange[] {
   return files
 }
 
-// A path strictly below `parent`, spelled without `..`.
+// A path strictly below `parent`, spelled without empty, `.` or `..` segments; guards `rm -rf`.
 export function isInside(child: string, parent: string): boolean {
   const base = parent.replace(/\/+$/, '')
-  return child.startsWith(`${base}/`) && !child.split('/').includes('..')
+  if (base === '') return false
+  const c = child.replace(/\/+$/, '')
+  if (!c.startsWith(`${base}/`) || c.length === base.length + 1) return false
+  return !c.split('/').slice(1).some(seg => seg === '' || seg === '.' || seg === '..')
 }
 
 // A bare repository beside the project: its own index per session, the project as work tree, so the
@@ -66,7 +71,15 @@ export class ShadowGit {
     const argv = ['git', `--git-dir=${this.gitDir}`, `--work-tree=${workTree}`, '-c', 'core.quotepath=off', ...args]
     const result = await this.runner(argv, {
       cwd: workTree,
-      env: { ...IDENTITY, GIT_INDEX_FILE: opts.index ?? this.indexFile },
+      env: {
+        ...IDENTITY,
+        GIT_DIR: this.gitDir,
+        GIT_WORK_TREE: workTree,
+        GIT_OBJECT_DIRECTORY: `${this.gitDir}/objects`,
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: '',
+        GIT_NAMESPACE: '',
+        GIT_INDEX_FILE: opts.index ?? this.indexFile,
+      },
       timeoutMs: opts.timeoutMs ?? TIMEOUT_MS,
     })
     if (result.exitCode !== 0) throw new GitError(args, result)
@@ -76,8 +89,21 @@ export class ShadowGit {
   // Idempotent: re-running init on an existing repository leaves it as it is.
   async init(): Promise<void> {
     const args = ['init', '--bare', '--quiet', this.gitDir]
-    const result = await this.runner(['git', ...args], { timeoutMs: TIMEOUT_MS })
+    const result = await this.runner(['git', ...args], {
+      env: { GIT_OBJECT_DIRECTORY: `${this.gitDir}/objects`, GIT_ALTERNATE_OBJECT_DIRECTORIES: '', GIT_NAMESPACE: '' },
+      timeoutMs: TIMEOUT_MS,
+    })
     if (result.exitCode !== 0) throw new GitError(args, result)
+    await this.syncExcludes()
+  }
+
+  // The user's local `.git/info/exclude` applies to the shadow repository too.
+  async syncExcludes(): Promise<void> {
+    const src = `${this.workTree}/.git/info/exclude`
+    const dst = `${this.gitDir}/info/exclude`
+    const args = ['sh', '-c', 'if [ -f "$1" ]; then mkdir -p "$(dirname "$2")" && cp "$1" "$2"; fi', 'tm-sync', src, dst]
+    const result = await this.runner(args, { timeoutMs: TIMEOUT_MS })
+    if (result.exitCode !== 0) throw new GitError(['sync-excludes'], result)
   }
 
   // Stage the work tree; commit only when its tree differs from `parent`'s.
@@ -109,9 +135,14 @@ export class ShadowGit {
   }
 
   // The work tree made to match `target`: tracked files rewritten, files `target` lacks removed, ignored
-  // files untouched. The index must hold the current state (a snapshot just before does that).
-  restore(target: string, ref: string): Promise<void> {
+  // files untouched. `from` is the commit the caller just snapshotted; if the work tree no longer
+  // matches it, nothing is touched, so unsnapshotted work is never lost.
+  restore(target: string, ref: string, from: string): Promise<void> {
     return this.serial(async () => {
+      await this.git(['add', '-A'])
+      const tree = (await this.git(['write-tree'])).trim()
+      const fromTree = (await this.git(['rev-parse', `${from}^{tree}`])).trim()
+      if (tree !== fromTree) throw new Error('the work tree changed since the last snapshot; run the restore again')
       await this.git(['read-tree', '-u', '--reset', target])
       await this.git(['update-ref', ref, target])
     })
