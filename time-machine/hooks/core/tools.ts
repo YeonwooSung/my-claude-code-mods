@@ -71,9 +71,18 @@ export function summarizeInput(input: Record<string, unknown>): { input: Record<
       lossy = true
       return `${masked.slice(0, INPUT_STRING_MAX)}…(+${masked.length - INPUT_STRING_MAX} chars, #${contentHash(value)})`
     }
-    if (Array.isArray(value)) return depth > 4 ? '[…]' : value.map(v => walk(v, depth + 1))
+    if (Array.isArray(value)) {
+      if (depth > 4) {
+        lossy = true
+        return '[…]'
+      }
+      return value.map(v => walk(v, depth + 1))
+    }
     if (value && typeof value === 'object') {
-      if (depth > 4) return '{…}'
+      if (depth > 4) {
+        lossy = true
+        return '{…}'
+      }
       return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, walk(v, depth + 1)]))
     }
     return value

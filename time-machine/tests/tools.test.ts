@@ -44,3 +44,10 @@ test('results: text, deny, error, redacted head', () => {
   expect(r.head).not.toContain('abc')
   expect(r.chars).toBe(3_010)
 })
+
+test('summarizeInput flags depth-truncated input as lossy', () => {
+  const deep = { a: { b: { c: { d: { e: { f: { g: 1 } } } } } } }
+  const r = summarizeInput(deep)
+  expect(r.lossy).toBe(true)
+  expect(JSON.stringify(r.input)).toContain('{…}')
+})

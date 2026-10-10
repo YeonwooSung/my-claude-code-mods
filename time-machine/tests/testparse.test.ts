@@ -81,3 +81,15 @@ test('sameFile matches relative, absolute and ./ spellings by path suffix', () =
   expect(sameFile('./src/a.ts', 'src/a.ts')).toBe(true)
   expect(sameFile('a.py', 'data.py')).toBe(false)
 })
+
+test('long inputs stay fast and still find locations in the middle', () => {
+  const time = (text: string) => {
+    const t0 = performance.now()
+    const run = parseTestOutput(text, true)
+    return { ms: performance.now() - t0, run }
+  }
+  expect(time('a'.repeat(1_000_000)).ms).toBeLessThan(500)
+  const mid = time('x'.repeat(100_000) + ' src/app.js:7 ' + 'y'.repeat(300_000))
+  expect(mid.ms).toBeLessThan(500)
+  expect(mid.run.locations).toContainEqual({ file: 'src/app.js', line: 7 })
+})

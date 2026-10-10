@@ -3,8 +3,9 @@ import type { TestFailure, TestRun } from './types.ts'
 const MAX_FAILURES = 50
 const MAX_LOCATIONS = 100
 const MAX_PATHS = 200
+const SCAN_MAX = 128 * 1024
 const EXT = String.raw`(?:py|[cm]?[jt]sx?|go|rs|rb|java|kt|swift|c|cc|cpp|h|hpp|cs|php|scala|exs?)`
-const FILE = String.raw`(?:\.{0,2}\/)?(?:[\w.@-]+\/)*[\w.@-]+\.${EXT}`
+const FILE = String.raw`(?<![\w.@/-])(?:\.{0,2}\/)?(?:[\w.@-]+\/)*[\w.@-]+\.${EXT}`
 const PATH_TOKEN = new RegExp(String.raw`${FILE}\b`, 'g')
 const LOCATION = new RegExp(String.raw`(${FILE})(?::|", line )(\d+)`, 'g')
 const VENDOR = /node_modules|site-packages|dist-packages|\/lib\/python|<frozen|^internal\/|\/rustc\//
@@ -49,18 +50,18 @@ function parsePytest(text: string): Found | undefined {
 
 function parseJest(text: string): Found | undefined {
   const jest = /^Tests:\s+(.+)$/m.exec(text)
-  const vitest = jest ? undefined : /^\s*Tests\s+(.+?)\s*(?:\(\d+\))?\s*$/m.exec(text)
+  const vitest = jest ? undefined : /^[ \t]*Tests\s+(.+?)\s*(?:\(\d+\))?\s*$/m.exec(text)
   const line = jest?.[1] ?? vitest?.[1]
   if (line === undefined) return undefined
   const failures: TestFailure[] = []
-  for (const m of text.matchAll(/^\s*● (.+?)\s*$/gm)) if (!/^Console\b/.test(m[1]!)) failures.push({ name: m[1]! })
-  for (const m of text.matchAll(/^\s*(?:FAIL|×|✗)\s+(\S+\.[cm]?[jt]sx?)\s+>\s+(.+?)\s*$/gm)) failures.push({ name: `${m[1]} > ${m[2]}`, file: m[1]! })
+  for (const m of text.matchAll(/^[ \t]*● (.+?)\s*$/gm)) if (!/^Console\b/.test(m[1]!)) failures.push({ name: m[1]! })
+  for (const m of text.matchAll(/^[ \t]*(?:FAIL|×|✗)\s+(\S+\.[cm]?[jt]sx?)\s+>\s+(.+?)\s*$/gm)) failures.push({ name: `${m[1]} > ${m[2]}`, file: m[1]! })
   return { framework: jest ? 'jest' : 'vitest', ...count(line, /(\d+) (passed|failed|skipped)\b/g), failures }
 }
 
 function parseGo(text: string): Found | undefined {
-  const fails = [...text.matchAll(/^\s*--- FAIL: (\S+)/gm)]
-  const passes = [...text.matchAll(/^\s*--- PASS: /gm)]
+  const fails = [...text.matchAll(/^[ \t]*--- FAIL: (\S+)/gm)]
+  const passes = [...text.matchAll(/^[ \t]*--- PASS: /gm)]
   if (fails.length === 0 && passes.length === 0 && !/^(?:ok|FAIL)\s+\S+\s+[\d.]+s/m.test(text)) return undefined
   return {
     framework: 'go',
@@ -86,6 +87,11 @@ export function sameFile(a: string, b: string): boolean {
   const x = a.replace(/^\.\//, '')
   const y = b.replace(/^\.\//, '')
   return x === y || x.endsWith(`/${y}`) || y.endsWith(`/${x}`)
+}
+
+// Locations and paths come from the first and last 128 KiB only: a hook must not stall on a huge dump.
+function scanWindow(text: string): string {
+  return text.length <= 2 * SCAN_MAX ? text : `${text.slice(0, SCAN_MAX)}\n${text.slice(-SCAN_MAX)}`
 }
 
 function locationsOf(text: string): { file: string; line: number }[] {
@@ -115,7 +121,8 @@ function pathsOf(text: string): string[] {
 // What a test command's output says: framework, counts, failing tests and where they point.
 export function parseTestOutput(text: string, isError: boolean): TestRun {
   const found = parseCargo(text) ?? parsePytest(text) ?? parseJest(text) ?? parseGo(text) ?? parseNodeTest(text)
-  const locations = locationsOf(text)
+  const window = scanWindow(text)
+  const locations = locationsOf(window)
   const failures = (found?.failures ?? []).slice(0, MAX_FAILURES).map(f => ({ ...f }))
   for (const loc of locations) {
     const failure = failures.find(f => f.file !== undefined && f.line === undefined && sameFile(f.file, loc.file))
@@ -126,7 +133,7 @@ export function parseTestOutput(text: string, isError: boolean): TestRun {
     ok: !isError && (found?.failed ?? 0) === 0 && (found?.errors ?? 0) === 0,
     failures,
     locations,
-    paths: pathsOf(text),
+    paths: pathsOf(window),
   }
   if (found?.passed !== undefined) run.passed = found.passed
   if (found?.failed !== undefined) run.failed = found.failed
