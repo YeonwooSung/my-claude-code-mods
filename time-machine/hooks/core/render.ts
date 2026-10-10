@@ -1,5 +1,6 @@
 import type { Why } from './causality.ts'
 import { keyOf, type Compared, type OutputComparison } from './compare.ts'
+import { redactSecrets } from './redact.ts'
 import type { Recorder } from './timeline.ts'
 import type { FileChange, Step, TestRun } from './types.ts'
 
@@ -29,6 +30,10 @@ export function filesSummary(files: readonly FileChange[], total: number, n = 3)
 }
 
 export function label(step: Step): string {
+  return clip(rawLabel(step), 80)
+}
+
+function rawLabel(step: Step): string {
   if (step.kind === 'baseline') return 'baseline'
   if (step.kind === 'external') return 'external change'
   if (step.kind === 'restore') return `restore → ${circled(Number(step.input.to))}`
@@ -107,7 +112,7 @@ export function renderStep(step: Step): string {
   }
   if (step.test) {
     lines.push(`test (${step.test.framework}): ${testSummary(step.test)}`)
-    for (const f of step.test.failures.slice(0, 10)) lines.push(`  ✗ ${f.name}${f.file ? ` (${f.file}${f.line !== undefined ? `:${f.line}` : ''})` : ''}`)
+    for (const f of step.test.failures.slice(0, 10)) lines.push(`  ✗ ${clip(redactSecrets(f.name), 200)}${f.file ? ` (${f.file}${f.line !== undefined ? `:${f.line}` : ''})` : ''}`)
   }
   return lines.join('\n')
 }
@@ -126,9 +131,14 @@ export function renderWhy(w: Why, labels?: (n: number) => string | undefined): s
         lines.push(`     changed by ${s.steps.map(circled).join(' ')}`)
       })
     }
-    if (t.failures.length > 0) lines.push(`Failures: ${t.failures.slice(0, 5).map(f => `${f.name}${f.line !== undefined ? ` (${f.file}:${f.line})` : ''}`).join(', ')}`)
+    if (t.failures.length > 0) lines.push(`Failures: ${t.failures.slice(0, 5).map(f => `${clip(redactSecrets(f.name), 200)}${f.line !== undefined ? ` (${f.file}:${f.line})` : ''}`).join(', ')}`)
   }
-  if (w.fixedBy) lines.push(`Fixed by: ${w.fixedBy.steps.map(n => labels?.(n) ?? circled(n)).join(', ')} → ${circled(w.fixedBy.run.n)} ${label(w.fixedBy.run)} ${testSummary(w.fixedBy.run.test!)}`)
+  if (w.fixedBy) {
+    const run = `${circled(w.fixedBy.run.n)} ${label(w.fixedBy.run)} ${testSummary(w.fixedBy.run.test!)}`
+    if (w.fixedBy.steps.length === 0) lines.push(`Passed later at ${run} with no file changes in between (flaky, or the environment changed)`)
+    else if (labels) lines.push(`Fixed by: ${w.fixedBy.steps.map(n => labels(n) ?? circled(n)).join(', ')} → ${run}`)
+    else lines.push(`Fixed by: ${w.fixedBy.steps.map(circled).join(', ')} (${w.fixedBy.files.join(', ')}) → ${run}`)
+  }
   if (w.improved) lines.push(`Improved: ${w.improved.from} → ${w.improved.to} failed at ${circled(w.improved.run.n)}`)
   lines.push('(inferred from failure-output mentions, recency and change counts — not proof)')
   return lines.join('\n')
@@ -159,7 +169,7 @@ export function renderRerun(step: Step, c: OutputComparison, where: string): str
 }
 
 // `step` is the step asked for; `target` the step whose snapshot is used (the same, or the nearest earlier one).
-export function renderRestorePlan(step: Step, target: Step, files: readonly FileChange[], applied: boolean, branch?: string): string {
+export function renderRestorePlan(step: Step, target: Step, files: readonly FileChange[], applied: boolean, branch?: string, told = true): string {
   const n = step.n
   const what = `${circled(n)} ${label(step)}`
   const head = `snapshot ${target.snapshot?.commit.slice(0, 7) ?? '?'}${target.n !== n ? ` from ${circled(target.n)}` : ''}`
@@ -169,7 +179,7 @@ export function renderRestorePlan(step: Step, target: Step, files: readonly File
   for (const f of files.slice(0, 50)) lines.push(`  ${f.status} ${f.path}`)
   if (files.length > 50) lines.push(`  … +${files.length - 50} more`)
   if (applied) {
-    lines.push('The state before the restore was snapshotted, so this can be undone. The model was told the files changed.')
+    lines.push(`The state before the restore was snapshotted, so this can be undone. ${told ? 'The model was told the files changed.' : 'The note to the model could not be added; tell it the files changed before it edits them.'}`)
     if (branch !== undefined) lines.push(`New steps go to branch '${branch}'. The conversation itself was not rewound.`)
   } else {
     lines.push(branch !== undefined ? `Run /tm branch ${n} ${branch} --yes to apply.` : `Run /tm restore ${n} --yes to apply (the current state is snapshotted first, so it can be undone).`)

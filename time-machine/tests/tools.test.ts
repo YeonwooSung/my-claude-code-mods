@@ -51,3 +51,10 @@ test('summarizeInput flags depth-truncated input as lossy', () => {
   expect(r.lossy).toBe(true)
   expect(JSON.stringify(r.input)).toContain('{…}')
 })
+
+test('free-text targets are one line, bounded and redacted', () => {
+  const grep = targetOf('Grep', { pattern: `a\nb${'x'.repeat(500)}` }, '/r')!
+  expect(grep).not.toContain('\n')
+  expect(grep.length).toBeLessThanOrEqual(120)
+  expect(targetOf('WebFetch', { url: 'https://x/?api_key=sekret123' }, '/r')).toBeDefined()
+})

@@ -89,3 +89,30 @@ test('why, compare, rerun, restore plan, sessions and the status line', () => {
   expect(statusLine(r, [40, 42])).toBe('tm ⑦ · 3 snaps · 41ms')
   expect(statusLine(r, [], 'git unavailable')).toBe('tm ⑦ · snapshots off')
 })
+
+test('labels, failure names and fixed-by are bounded and honest', () => {
+  const r = new Recorder(session)
+  r.baseline(1, { commit: 'c0', changed: true, files: [], filesTotal: 0, ms: 1 })
+  r.finish(r.begin({ id: 'a', tool: 'Grep', target: 'x'.repeat(300), at: 2 }), 3)
+  expect(renderStep(r.get(1)!).split('\n')[0]!.length).toBeLessThanOrEqual(90)
+  const long = 'n'.repeat(10000)
+  const t: TestRun = { framework: 'pytest', ok: false, failed: 1, failures: [{ name: long }], locations: [], paths: [] }
+  r.finish(r.begin({ id: 'b', tool: 'Bash', target: 'pytest', at: 4 }), 5, { test: t })
+  expect(renderStep(r.get(2)!).length).toBeLessThan(900)
+  r.finish(r.begin({ id: 'c', tool: 'Bash', target: 'pytest', at: 6 }), 7, { test: passed })
+  const w = renderWhy(why(r.path())!)
+  expect(w.length).toBeLessThan(900)
+  expect(w).toContain('Passed later at ③ Bash pytest ✓ 12 passed with no file changes in between')
+  expect(w).not.toContain('Fixed by:  →')
+})
+
+test('without labels, fixed-by lists the files once', () => {
+  const r = example()
+  expect(renderWhy(why(r.path())!)).toContain('Fixed by: ⑤ (middleware.py) → ⑥ Bash pytest ✓ 12 passed')
+})
+
+test('restore plan says when the model note could not be added', () => {
+  const s = example().get(3)!
+  expect(renderRestorePlan(s, s, [], true, undefined, true)).toContain('The model was told the files changed.')
+  expect(renderRestorePlan(s, s, [], true, undefined, false)).toContain('could not be added; tell it the files changed')
+})

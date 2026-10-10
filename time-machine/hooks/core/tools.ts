@@ -28,6 +28,9 @@ export function relPath(root: string, path: string): string {
   return base !== '' && path.startsWith(`${base}/`) ? path.slice(base.length + 1) : path
 }
 
+// A free-text target: secrets masked, whitespace collapsed to one line, cut to 120 chars.
+const oneLine = (text: string | undefined): string | undefined => (text ? redactSecrets(text).replace(/\s+/g, ' ').trim().slice(0, 120) : undefined)
+
 export function targetOf(tool: string, input: Record<string, unknown>, root: string): string | undefined {
   switch (tool) {
     case 'Read':
@@ -42,19 +45,18 @@ export function targetOf(tool: string, input: Record<string, unknown>, root: str
       return path ? relPath(root, path) : undefined
     }
     case 'Bash': {
-      const command = str(input.command)
-      return command ? redactSecrets(command).replace(/\s+/g, ' ').trim().slice(0, 120) : undefined
+      return oneLine(str(input.command))
     }
     case 'Grep':
     case 'Glob':
-      return str(input.pattern)
+      return oneLine(str(input.pattern))
     case 'WebFetch':
-      return str(input.url)
+      return oneLine(str(input.url))
     case 'WebSearch':
-      return str(input.query)
+      return oneLine(str(input.query))
     case 'Agent':
     case 'Task':
-      return str(input.subagent_type) ?? str(input.description)
+      return oneLine(str(input.subagent_type) ?? str(input.description))
     default:
       return undefined
   }
