@@ -59,7 +59,7 @@ export type ModelRec = {
   index: number
   agentId?: string
   model: string
-  stopReason: string
+  stopReason: string | null
   usage: unknown
   text: { chars: number; hash: string; body?: string }
   toolUses: { id: string; tool: string }[]
