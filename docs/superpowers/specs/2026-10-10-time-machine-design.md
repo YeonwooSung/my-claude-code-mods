@@ -55,7 +55,7 @@ Session #184
 
 ```
 time-machine/
-  .claude-plugin/plugin.json   # userConfig: storeDir, retentionDays, recordModelOutput, snapshotReadOnlyBash
+  .claude-plugin/plugin.json   # userConfig: storeDir, retentionDays, recordModelOutput, skipSearchBash
   hooks/hooks.json
   hooks/register.tsx           # 어댑터: 이벤트 → Recorder, 명령, 패널, 노트
   hooks/core/
@@ -222,3 +222,12 @@ mods API로 가능한 구조:
 | 터미널 | 모든 명령, 패널, 상태줄 |
 | VS Code 채팅 패널 | 훅과 명령 텍스트만(패널·상태줄은 표시되지 않음) — `/tm` 텍스트가 기본 출력 |
 | `claude -p` | 기록·스냅샷 동작; 명령은 stream-json 입력으로 같은 프로세스에서 |
+
+## 11. 계획 단계에서 정한 보정 (2026-10-10)
+
+1. **베이스라인은 git이 처음 필요할 때 찍는다**(첫 변경성 도구 직전, 또는 git을 쓰는 첫 `/tm` 명령). 훅의 `$`는 그 훅이 살아 있는 동안만 믿을 수 있고, 세션 시작을 git 시간만큼 늦추지 않기 위해서다. 베이스라인 = "기록된 첫 변경 직전의 상태". §4.2·§5의 "세션 시작 시 베이스라인"을 대체한다.
+2. **Bash는 기본으로 모두 스냅샷**한다. classify가 `search`로 보는 명령도 리디렉션(`cat > f <<EOF`)으로 파일을 쓸 수 있기 때문이다. 변경이 없으면 커밋하지 않으므로 비용은 트리 해시 한 번. userConfig `skipSearchBash`(기본 false)를 켜면 `search` 명령은 건너뛴다. §4.2의 `snapshotReadOnlyBash`를 대체한다.
+3. **스냅샷을 끄는 조건**: 세션 루트가 `/` 또는 HOME이면 꺼짐; 베이스라인 스냅샷이 5초를 넘으면 꺼짐(이후 모든 변경성 도구가 그만큼 느려지므로). 이유는 상태줄과 `/tm`에 보인다.
+4. `turn.step`은 생성기 훅이라 `.catch`를 달지 않고, 기록은 모두 try 안에서 한다.
+5. git 래퍼는 훅마다 그 훅의 `$`로 만든 Runner를 쓴다(`git.runner = runnerOf($)`).
+6. 재실행 입력: 이번 로드에서 기록한 step은 메모리에 둔 원래 입력으로 재실행한다. 저장된 입력은 잘리거나 마스킹됐을 수 있어(`inputLossy`) 그런 step은 다른 로드에서 재실행하지 않는다.
