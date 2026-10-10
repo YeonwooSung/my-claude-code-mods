@@ -60,3 +60,8 @@ test('free-text targets are one line, bounded and redacted', () => {
   expect(url).not.toContain('sekret123')
   expect(url).toContain('[REDACTED]')
 })
+
+test('summarizeInput and callInput drop the engine key consent', () => {
+  expect(summarizeInput({ tool: 'Bash', command: 'ls', consent: { granted: true } }).input).toEqual({ command: 'ls' })
+  expect(callInput({ tool: 'Bash', command: 'ls', consent: 'x' })).toEqual({ command: 'ls' })
+})

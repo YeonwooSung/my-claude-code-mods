@@ -270,3 +270,12 @@ test('ignoredConflicts: equal paths, and one path a directory prefix of the othe
   expect(ignoredConflicts(['a/b.log'], ['a/c.ts'])).toEqual([])
   expect(ignoredConflicts(['ab'], ['a', 'abc/d'])).toEqual([])
 })
+
+test('every git call overrides an inherited common dir and config parameters', async () => {
+  const f = fake(sub => (sub === 'write-tree' ? { stdout: 't\n' } : sub === 'commit-tree' ? { stdout: 'c\n' } : undefined))
+  await G(f).snapshot(undefined, 'b', 'r')
+  for (const c of f.calls) {
+    expect(c.env!.GIT_COMMON_DIR).toBe('/s/shadow.git')
+    expect(c.env!.GIT_CONFIG_PARAMETERS).toBe('')
+  }
+})

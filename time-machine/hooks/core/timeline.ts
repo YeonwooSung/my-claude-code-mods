@@ -45,8 +45,9 @@ export class Recorder {
     return this.steps.get(n)
   }
 
+  // By number: the baseline, taken when git is first needed, comes first.
   all(): Step[] {
-    return this.order.map(n => this.steps.get(n)!)
+    return [...this.order].sort((a, b) => a - b).map(n => this.steps.get(n)!)
   }
 
   baseline(at: number, snapshot?: SnapshotRef): Step {

@@ -191,10 +191,11 @@ async function ensureGit($: EngineInterface, c: Ctx): Promise<ShadowGit | undefi
   return c.off ? undefined : git
 }
 
-async function takeSnapshot($: EngineInterface, c: Ctx, label: string): Promise<SnapshotRef | undefined> {
+// `own`: the caller's own call, when it is counted in flight.
+async function takeSnapshot($: EngineInterface, c: Ctx, label: string, own = 0): Promise<SnapshotRef | undefined> {
   const git = await ensureGit($, c)
   if (!git) return undefined
-  const concurrent = c.inflight > 0
+  const concurrent = c.inflight > own
   const t0 = Date.now()
   try {
     const s = await git.snapshot(c.head, label, refOf(c))
@@ -210,9 +211,11 @@ async function takeSnapshot($: EngineInterface, c: Ctx, label: string): Promise<
 }
 
 // Changes made outside the agent since the last snapshot become an `external` step of their own.
-async function checkExternal($: EngineInterface, c: Ctx): Promise<Step | undefined> {
-  if (c.inflight > 0) return undefined
-  const snap = await takeSnapshot($, c, 'external')
+// Skipped while another mutating call is in flight: its changes are not external. `own` is 1 when the
+// caller is a tool call already counted in flight.
+async function checkExternal($: EngineInterface, c: Ctx, own = 0): Promise<Step | undefined> {
+  if (c.inflight > own) return undefined
+  const snap = await takeSnapshot($, c, 'external', own)
   if (!snap?.changed) return undefined
   const step = c.rec.begin({ id: `external-${Date.now()}`, tool: 'external', kind: 'external', at: Date.now() })
   c.rec.finish(step, Date.now(), { snapshot: snap })
@@ -539,10 +542,11 @@ export const register: Register = (on, options) => {
     let counted = false
     try {
       mutating = isMutating(tool, raw, currentOptions.skipSearchBash === true)
-      if (mutating) await checkExternal($, c)
+      // Counted before the check, so a parallel call does not check (and blame this one's writes) too.
       if (mutating) {
         c.inflight += 1
         counted = true
+        await checkExternal($, c, 1)
       }
       const { input, lossy } = summarizeInput(raw)
       const target = targetOf(tool, raw, c.root)

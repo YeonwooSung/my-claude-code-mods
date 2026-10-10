@@ -11,7 +11,7 @@ export const READ_ONLY_TOOLS = new Set([
 ])
 export const INPUT_STRING_MAX = 4096
 export const RESULT_HEAD_MAX = 2048
-const ENGINE_KEYS = new Set(['tool', 'tool_use_id', 'agentId'])
+const ENGINE_KEYS = new Set(['tool', 'tool_use_id', 'agentId', 'consent'])
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined)
 

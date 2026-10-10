@@ -105,9 +105,12 @@ export class ShadowGit {
         ...IDENTITY,
         GIT_DIR: this.gitDir,
         GIT_WORK_TREE: workTree,
+        GIT_COMMON_DIR: this.gitDir,
         GIT_OBJECT_DIRECTORY: `${this.gitDir}/objects`,
         GIT_ALTERNATE_OBJECT_DIRECTORIES: '',
         GIT_NAMESPACE: '',
+        // Empty clears `-c` settings inherited from a parent git; empty GIT_COMMON_DIR would break git.
+        GIT_CONFIG_PARAMETERS: '',
         GIT_INDEX_FILE: opts.index ?? this.indexFile,
       },
       timeoutMs: opts.timeoutMs ?? TIMEOUT_MS,
@@ -118,7 +121,7 @@ export class ShadowGit {
   async init(): Promise<void> {
     const args = ['init', '--bare', '--quiet', this.gitDir]
     const result = await this.runner(['git', ...args], {
-      env: { GIT_OBJECT_DIRECTORY: `${this.gitDir}/objects`, GIT_ALTERNATE_OBJECT_DIRECTORIES: '', GIT_NAMESPACE: '' },
+      env: { GIT_COMMON_DIR: this.gitDir, GIT_OBJECT_DIRECTORY: `${this.gitDir}/objects`, GIT_ALTERNATE_OBJECT_DIRECTORIES: '', GIT_NAMESPACE: '', GIT_CONFIG_PARAMETERS: '' },
       timeoutMs: TIMEOUT_MS,
     })
     if (result.exitCode !== 0) throw new GitError(args, result)

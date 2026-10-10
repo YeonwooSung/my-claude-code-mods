@@ -91,3 +91,11 @@ test('fromRecords rebuilds steps, branches, the current branch, turns and number
   expect(back.begin({ id: 'z', tool: 'Read', at: 9 }).n).toBe(6)
   expect(Recorder.fromRecords([])).toBeUndefined()
 })
+
+test('all() lists steps by number, the baseline first, even when the baseline was taken late', () => {
+  const r = new Recorder(session)
+  r.finish(r.begin({ id: 'a', tool: 'Read', at: 1 }), 2)
+  r.baseline(3)
+  r.finish(r.begin({ id: 'b', tool: 'Edit', at: 4 }), 5)
+  expect(r.all().map(s => s.n)).toEqual([0, 1, 2])
+})

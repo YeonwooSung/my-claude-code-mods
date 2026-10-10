@@ -124,3 +124,14 @@ test('a branch restore shows how the work tree changed, though its snapshot list
   r.restoreStep({ at: 4, to: 0, from: 'c1', commit: 'cR00000', files: [{ status: 'D', path: 'a.js' }], branch: 'b1' })
   expect(renderTimeline(r)).toContain('└── snapshot cR00000 · work tree: D a.js')
 })
+
+test('renderSessions shows an unknown start for a missing or impossible time', () => {
+  const text = renderSessions([
+    { id: 'a', startedAt: Number.NaN, current: false },
+    { id: 'b', startedAt: 1e20, current: false },
+    { id: 'c', startedAt: 0, current: true },
+  ])
+  expect(text).toContain('a · started ?')
+  expect(text).toContain('b · started ?')
+  expect(text).toContain('c (this session) · started 1970-01-01T00:00:00.000Z')
+})

@@ -207,7 +207,11 @@ export function renderRestorePlan(step: Step, target: Step, files: readonly File
 export function renderSessions(rows: readonly { id: string; startedAt: number; current: boolean }[]): string {
   if (rows.length === 0) return 'No recorded sessions for this project.'
   const sorted = [...rows].sort((a, b) => b.startedAt - a.startedAt)
-  return ['Recorded sessions (newest first):', ...sorted.map(r => `  ${r.id}${r.current ? ' (this session)' : ''} · started ${new Date(r.startedAt).toISOString()}`)].join('\n')
+  const started = (at: number): string => {
+    const date = new Date(at)
+    return Number.isFinite(at) && Number.isFinite(date.getTime()) ? date.toISOString() : '?'
+  }
+  return ['Recorded sessions (newest first):', ...sorted.map(r => `  ${r.id}${r.current ? ' (this session)' : ''} · started ${started(r.startedAt)}`)].join('\n')
 }
 
 export function statusLine(rec: Recorder, snapMs: readonly number[], off?: string): string {

@@ -159,3 +159,34 @@ test('a relative store turns snapshots off, and says so', { options: { storeDir:
   await recordSome($, on, new Map())
   expect(String((await $.command.run({ command: 'tm', args: '' } as never)).text)).toContain('snapshots off: storeDir must be an absolute path')
 })
+
+// Git answered from memory through `process.run`: every tree differs, so every check sees a change.
+function fakeGit(on: On): void {
+  let k = 0
+  on('process.run', (_$, e) => {
+    const args = e.argv.slice(e.argv.indexOf('core.quotepath=off') + 1)
+    const sub = args[0] === 'rev-parse' && args[1] === '--verify' ? 'verify' : args[0]
+    k += 1
+    const out =
+      sub === 'verify' ? { exitCode: 1, stdout: '' }
+      : sub === 'write-tree' ? { exitCode: 0, stdout: `tree${k}\n` }
+      : sub === 'rev-parse' ? { exitCode: 0, stdout: 'old\n' }
+      : sub === 'commit-tree' ? { exitCode: 0, stdout: `c${k}\n` }
+      : sub === 'diff' ? { exitCode: 0, stdout: 'M\tx.js\n' }
+      : { exitCode: 0, stdout: '' }
+    return { value: { ...out, stderr: '' } } as never
+  })
+}
+
+test('parallel mutating calls check for external changes once, before the first of them', async ($, on) => {
+  world(on, new Map())
+  fakeGit(on)
+  await $.session.start({ cwd: '/r', surface: null, isInteractive: false } as never)
+  await Promise.all([
+    $.tool.call({ tool: 'Edit', file_path: '/r/a.js', old_string: 'a', new_string: 'b', tool_use_id: 'e1' } as never),
+    $.tool.call({ tool: 'Edit', file_path: '/r/b.js', old_string: 'a', new_string: 'b', tool_use_id: 'e2' } as never),
+  ])
+  const text = String((await $.command.run({ command: 'tm', args: 'timeline' } as never)).text)
+  expect(text).not.toContain('snapshots off')
+  expect(text.split('\n').filter(l => l.includes('external change')).length).toBe(1)
+})
