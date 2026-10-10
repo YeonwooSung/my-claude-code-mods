@@ -14,7 +14,8 @@ function fake(answer: (sub: string, args: readonly string[]) => Partial<RunResul
     calls.push({ argv, env: opts?.env, cwd: opts?.cwd })
     await Promise.resolve()
     const i = argv.indexOf('core.quotepath=off')
-    const args = i >= 0 ? argv.slice(i + 1) : argv.slice(1)
+    const all = i >= 0 ? argv.slice(i + 1) : argv.slice(1)
+    const args = all[0] === '--literal-pathspecs' ? all.slice(1) : all
     const sub = subOf(args)
     const r = answer(sub, args) ?? (sub === 'verify' ? { exitCode: 1 } : {})
     return { exitCode: r.exitCode ?? 0, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }
@@ -22,7 +23,8 @@ function fake(answer: (sub: string, args: readonly string[]) => Partial<RunResul
   const subs = (): string[] =>
     calls.map(c => {
       const i = c.argv.indexOf('core.quotepath=off')
-      return i >= 0 ? subOf(c.argv.slice(i + 1)) : c.argv[1]!
+      const args = c.argv.slice(i + 1)
+      return i >= 0 ? subOf(args[0] === '--literal-pathspecs' ? args.slice(1) : args) : c.argv[1]!
     })
   return { runner, calls, subs }
 }
@@ -294,7 +296,7 @@ test('a wholly ignored directory that only holds a target path is judged by the 
             : undefined
   const ok = fake(answer('pkg/__pycache__/a.pyc\0'))
   expect(await G(ok).restore('c3', 'r', 'c2', 'm')).toBe('c4')
-  expect(ok.calls[5]!.argv.slice(-7)).toEqual(['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--', 'pkg/'])
+  expect(ok.calls[5]!.argv.slice(-8)).toEqual(['--literal-pathspecs', 'ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--', 'pkg/'])
   const clash = fake(answer('pkg/a.py\0'))
   let error: unknown
   try {

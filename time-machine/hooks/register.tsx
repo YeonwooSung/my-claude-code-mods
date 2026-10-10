@@ -415,7 +415,7 @@ async function rerun($: EngineInterface, c: Ctx, n: number, write: boolean, isol
     return out
   }
   if ((isMutating(step.tool, input, currentOptions.skipSearchBash === true) || ACTING_TOOLS.has(step.tool)) && !write)
-    return `time-machine: step ${n} (${step.tool}) can change files; add --write to run it again here (a snapshot is taken after it)`
+    return `time-machine: step ${n} (${step.tool}) can change files; add --write to run it again here (${ACTING_TOOLS.has(step.tool) ? 'the calls it makes are recorded as steps of their own' : 'a snapshot is taken after it'})`
   c.rerunOf = n
   let answer: unknown
   try {

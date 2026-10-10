@@ -70,10 +70,15 @@ export function ignoredConflicts(ignored: readonly string[], target: readonly st
 // A leftover `pkg/__pycache__/` beside a restored `pkg/a.py` is not a conflict.
 export function ignoredDirsToExpand(ignored: readonly string[], target: readonly string[]): string[] {
   const tgt = new Set(target.filter(p => p !== ''))
+  const holders = new Set<string>()
+  for (const t of tgt) {
+    const parts = t.split('/')
+    for (let i = 1; i < parts.length; i += 1) holders.add(parts.slice(0, i).join('/'))
+  }
   return ignored.filter(p => {
     if (!p.endsWith('/')) return false
     const dir = p.replace(/\/+$/, '')
-    return dir !== '' && !tgt.has(dir) && [...tgt].some(t => t.startsWith(`${dir}/`))
+    return holders.has(dir) && !tgt.has(dir)
   })
 }
 
@@ -219,8 +224,9 @@ export class ShadowGit {
       const fromTree = (await this.git(['rev-parse', `${from}^{tree}`], { runner })).trim()
       if (tree !== fromTree) throw new Error('the work tree changed since the last snapshot; run the restore again')
       const nul = (out: string): string[] => out.split('\0').filter(p => p !== '')
+      // Directory names are paths, never globs: `--literal-pathspecs` keeps `[`, `*` or `:` in them literal.
       const listIgnored = async (more: string[]): Promise<string[]> =>
-        nul(await this.git(['ls-files', '-z', '--others', '--ignored', '--exclude-standard', ...more], { runner }))
+        nul(await this.git([...(more.includes('--') ? ['--literal-pathspecs'] : []), 'ls-files', '-z', '--others', '--ignored', '--exclude-standard', ...more], { runner }))
       let ignored = await listIgnored(['--directory'])
       const targetPaths = nul(await this.git(['ls-tree', '-r', '-z', '--name-only', target], { runner }))
       const expand = ignoredDirsToExpand(ignored, targetPaths)

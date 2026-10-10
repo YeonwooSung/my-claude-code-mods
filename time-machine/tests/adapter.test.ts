@@ -198,7 +198,7 @@ test('/tm rerun of a subagent, skill or message step needs --write, as it can ch
   await $.session.start({ cwd: '/r', surface: null, isInteractive: false } as never)
   await $.tool.call({ tool: 'Agent', description: 'fix', prompt: 'fix the tests', tool_use_id: 'a1' } as never)
   const text = String((await $.command.run({ command: 'tm', args: 'rerun 1', origin: { kind: 'composer' } } as never)).text)
-  expect(text).toBe('time-machine: step 1 (Agent) can change files; add --write to run it again here (a snapshot is taken after it)')
+  expect(text).toBe('time-machine: step 1 (Agent) can change files; add --write to run it again here (the calls it makes are recorded as steps of their own)')
 })
 
 test("a parallel mutating call waits for the external check in progress, so its writes are not counted in it", async ($, on) => {
