@@ -1,0 +1,99 @@
+import { expect, test } from 'claude-code/testing'
+
+import { changesBetween, why } from '../hooks/core/causality.ts'
+import { compare, compareOutputs, keyOf, lcsPairs } from '../hooks/core/compare.ts'
+import { contentHash } from '../hooks/core/hash.ts'
+import { Recorder } from '../hooks/core/timeline.ts'
+import type { SnapshotRef, TestRun } from '../hooks/core/types.ts'
+
+const session = { sessionId: 's1', root: '/r', startedAt: 1, loadId: 'L' }
+const snap = (commit: string, ...paths: string[]): SnapshotRef => ({ commit, changed: true, files: paths.map(path => ({ status: 'M', path })), filesTotal: paths.length, ms: 5 })
+const failing = (failed: number, paths: string[], locations: { file: string; line: number }[] = []): TestRun => ({ framework: 'pytest', ok: false, failed, passed: 12, failures: [{ name: 'tests/test_auth.py::test_login', file: 'tests/test_auth.py' }], locations, paths })
+const passing: TestRun = { framework: 'pytest', ok: true, passed: 15, failures: [], locations: [], paths: [] }
+
+// The spec's example: ① Read ② Grep ③ Edit auth.py ④ pytest ✗ ⑤ Edit middleware.py ⑥ pytest ✓
+function session184(): Recorder {
+  const r = new Recorder(session)
+  r.baseline(1, { commit: 'c0', changed: true, files: [], filesTotal: 9, ms: 9 })
+  const add = (tool: string, target: string, extra: { snapshot?: SnapshotRef; test?: TestRun } = {}): void => {
+    r.finish(r.begin({ id: `${tool}-${target}`, tool, target, at: 2 }), 3, extra)
+  }
+  add('Read', 'auth.py')
+  add('Grep', 'JWT')
+  add('Edit', 'auth.py', { snapshot: snap('c3', 'auth.py') })
+  add('Edit', 'utils.py', { snapshot: snap('c4', 'utils.py') })
+  add('Bash', 'pytest', { test: failing(3, ['tests/test_auth.py', 'auth.py'], [{ file: 'auth.py', line: 12 }]) })
+  add('Edit', 'middleware.py', { snapshot: snap('c6', 'middleware.py') })
+  add('Bash', 'pytest', { test: passing })
+  return r
+}
+
+test('changesBetween collects files changed after one index up to another, with their steps', () => {
+  const path = session184().path()
+  expect([...changesBetween(path, 0, 5).entries()]).toEqual([
+    ['auth.py', [3]],
+    ['utils.py', [4]],
+  ])
+})
+
+test('why: suspects ranked by mention in the failure output, then recency; fixed-by names the edit in between', () => {
+  const w = why(session184().path())!
+  expect(w.run.n).toBe(5)
+  expect(w.base!.n).toBe(0)
+  expect(w.suspects.map(s => s.path)).toEqual(['auth.py', 'utils.py'])
+  expect(w.suspects[0]!.reasons).toContain('named in the failure output')
+  expect(w.suspects[0]!.reasons).toContain('a failure location points into it')
+  expect(w.suspects[0]!.steps).toEqual([3])
+  expect(w.suspects[0]!.score).toBeGreaterThan(w.suspects[1]!.score)
+  expect(w.fixedBy).toEqual({ run: expect.objectContaining({ n: 7 }), files: ['middleware.py'], steps: [6] })
+})
+
+test('why: the base is the last passing run before; improved when failures drop; undefined without runs', () => {
+  const r = new Recorder(session)
+  r.baseline(1)
+  const add = (tool: string, target: string, extra: { snapshot?: SnapshotRef; test?: TestRun } = {}): void => {
+    r.finish(r.begin({ id: `${tool}-${target}-${r.size}`, tool, target, at: 2 }), 3, extra)
+  }
+  add('Edit', 'a.py', { snapshot: snap('c1', 'a.py') })
+  add('Bash', 'pytest', { test: passing })
+  add('Edit', 'b.py', { snapshot: snap('c3', 'b.py') })
+  add('Bash', 'pytest', { test: failing(3, []) })
+  add('Edit', 'b.py', { snapshot: snap('c5', 'b.py') })
+  add('Bash', 'pytest', { test: failing(1, []) })
+  const w = why(r.path(), 4)!
+  expect(w.base!.n).toBe(2)
+  expect(w.suspects.map(s => s.path)).toEqual(['b.py'])
+  expect(w.improved).toEqual({ run: expect.objectContaining({ n: 6 }), from: 3, to: 1 })
+  expect(w.fixedBy).toBeUndefined()
+  expect(why(new Recorder(session).path())).toBeUndefined()
+})
+
+test('lcsPairs and compare: shared prefix, divergence, steps only on each side, last tests', () => {
+  expect(lcsPairs(['a', 'b', 'c', 'd'], ['a', 'c', 'd', 'e'])).toEqual([
+    [0, 0],
+    [2, 1],
+    [3, 2],
+  ])
+  const r = session184()
+  r.fork('b1', 3, 9)
+  r.finish(r.begin({ id: 'x', tool: 'Edit', target: 'middleware.py', at: 10 }), 11, { snapshot: snap('c9', 'middleware.py') })
+  r.finish(r.begin({ id: 'y', tool: 'Bash', target: 'pytest', at: 12 }), 13, { test: passing })
+  const c = compare(r.path('main'), r.path('b1'))
+  expect(c.common).toBe(3)
+  expect(keyOf(c.divergeA!)).toBe('Edit utils.py')
+  expect(keyOf(c.divergeB!)).toBe('Edit middleware.py')
+  expect(c.onlyA.map(keyOf)).toEqual(['Edit utils.py', 'Bash pytest'])
+  expect(c.onlyB.map(keyOf)).toEqual([])
+  expect(c.lastTestA!.n).toBe(7)
+  expect(c.lastTestB!.test!.ok).toBe(true)
+})
+
+test('compareOutputs: identical by hash, else line differences on the first 2 KiB', () => {
+  const was = { isError: false, denied: false, chars: 7, hash: contentHash('a\nb\nc'), head: 'a\nb\nc' }
+  expect(compareOutputs(was, 'a\nb\nc').identical).toBe(true)
+  const c = compareOutputs(was, 'a\nB\nc\nd', undefined, passing)
+  expect([c.identical, c.addedCount, c.removedCount]).toEqual([false, 2, 1])
+  expect(c.added).toEqual(['B', 'd'])
+  expect(c.removed).toEqual(['b'])
+  expect(c.now).toBe(passing)
+})
