@@ -11,6 +11,7 @@ type GitOptions = { index?: string; workTree?: string; timeoutMs?: number; runne
 
 const TIMEOUT_MS = 30_000
 const STALE_LOCK_MS = 120_000
+const DIFF_BYTES = 1024 * 1024
 const IDENTITY = {
   GIT_AUTHOR_NAME: 'time-machine',
   GIT_AUTHOR_EMAIL: 'tm@local',
@@ -219,13 +220,14 @@ export class ShadowGit {
       const stat = await this.git(['diff', '--stat', a, b], { runner })
       if (!Number.isFinite(maxLines)) return { stat, patch: await this.git(['diff', a, b], { runner }), more: false }
       const { argv, options } = this.invocation(['diff', a, b], {})
-      const r = await runner(['sh', '-c', 'set -o pipefail 2>/dev/null; "$@" | head -n "$TM_LINES"; s=$?; [ "$s" -eq 141 ] && s=0; exit $s', 'tm-diff', ...argv], {
+      const r = await runner(['sh', '-c', 'if (set -o pipefail) 2>/dev/null; then set -o pipefail; fi; "$@" | head -n "$TM_LINES" | head -c "$TM_BYTES"; s=$?; [ "$s" -eq 141 ] && s=0; exit $s', 'tm-diff', ...argv], {
         ...options,
-        env: { ...options.env, TM_LINES: String(maxLines + 1) },
+        // A minified bundle's single line can be megabytes: bytes are bounded too.
+        env: { ...options.env, TM_LINES: String(maxLines + 1), TM_BYTES: String(DIFF_BYTES) },
       })
       if (r.exitCode !== 0) throw new GitError(['diff', a, b], r)
       const lines = r.stdout.replace(/\n$/, '').split('\n')
-      const more = lines.length > maxLines
+      const more = lines.length > maxLines || r.stdout.length >= DIFF_BYTES
       return { stat, patch: (more ? lines.slice(0, maxLines) : lines).join('\n'), more }
     })
   }

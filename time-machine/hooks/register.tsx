@@ -321,7 +321,7 @@ async function prune($: EngineInterface, c: Ctx, git: ShadowGit): Promise<void> 
   // Isolated reruns' copies a crash left behind: named `<load>-<step>-<base-36 time>`, removed after a day.
   const tmpRoot = `${c.base}/tmp`
   for (const entry of await $.fs.list(tmpRoot).catch(() => [])) {
-    const at = parseInt(/-([0-9a-z]+)(?:\.index)?$/.exec(entry.name)?.[1] ?? '', 36)
+    const at = parseInt(/^[0-9a-z]+-\d+-([0-9a-z]+)(?:\.index)?$/.exec(entry.name)?.[1] ?? '', 36)
     const target = `${tmpRoot}/${entry.name}`
     if (!(Date.now() - at > DAY) || !isInside(target, tmpRoot)) continue
     await runnerOf($)(['rm', '-rf', target]).catch(() => undefined)
