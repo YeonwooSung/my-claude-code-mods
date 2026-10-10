@@ -18,7 +18,7 @@ import {
 } from './core/render.ts'
 import { ChunkWriter, parseChunks, projectKey } from './core/store.ts'
 import { parseTestOutput } from './core/testparse.ts'
-import { Recorder } from './core/timeline.ts'
+import { branchTaken, Recorder } from './core/timeline.ts'
 import { callInput, isMutating, resultText, summarizeInput, summarizeResult, targetOf } from './core/tools.ts'
 import type { SnapshotRef, Step } from './core/types.ts'
 import { isInside, ShadowGit, type Runner } from './git.ts'
@@ -285,14 +285,14 @@ async function restore($: EngineInterface, c: Ctx, n: number, yes: boolean, bran
   const name = branch === undefined ? undefined : branch || c.rec.nextBranchName()
   const asked = c.rec.get(n)!
   if (!yes) return renderRestorePlan(asked, target, files, false, name)
-  if (name !== undefined && c.rec.branches.has(name)) return `time-machine: branch '${name}' already exists`
+  if (name !== undefined && branchTaken(c.rec, name)) return `time-machine: branch '${name}' already exists`
   // A name git would refuse as a ref would fail only after the work tree was rewritten.
   if (name !== undefined && (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name) || name.includes('..') || name.endsWith('.lock') || name.endsWith('.')))
     return `time-machine: '${name}' is not a usable branch name (letters, digits, '.', '_', '-')`
   // Applied first: a refused restore (the work tree moved since `from`) leaves no fork and no restore step.
   // The ref is the new branch's when branching, so the branch left behind keeps its history.
   const ref = name !== undefined ? `refs/tm/${c.rec.session.sessionId}/${name}` : refOf(c)
-  const commit = await git.restore(target.snapshot.commit, ref, from, `restore to step ${n}${name !== undefined ? ` on branch ${name}` : ''}`)
+  const commit = await git.restore(target.snapshot.commit, ref, from, `restore to step ${n}${name !== undefined ? ` on branch ${name}` : ''}`, name !== undefined)
   c.head = commit
   if (name !== undefined) c.rec.fork(name, n, Date.now())
   const snapshot: SnapshotRef = { commit, changed: files.length > 0, files: files.slice(0, 200), filesTotal: files.length, ms: 0 }
@@ -587,7 +587,8 @@ export const register: Register = (on, options) => {
       if (!c) return { text: 'time-machine: not recording (the session could not be read)' }
       const args = e.args ?? ''
       const sub = changesFiles(args)
-      if (sub !== undefined && !TYPED.has(e.origin?.kind ?? '')) return { text: `time-machine: ${sub} changes files or runs commands and only runs when you type it` }
+      const kind = e.origin?.kind ?? 'unknown'
+      if (sub !== undefined && !TYPED.has(kind)) return { text: `time-machine: ${sub} changes files or runs commands and only runs when you type it (this came from ${kind})` }
       return { text: await runTm($, c, args) }
     } catch (error) {
       return { text: `time-machine: ${message(error)}` }

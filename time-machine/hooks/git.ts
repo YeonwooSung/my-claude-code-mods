@@ -152,16 +152,23 @@ export class ShadowGit {
   // files untouched. `from` is the commit the caller just snapshotted; if the work tree no longer
   // matches it, nothing is touched, so unsnapshotted work is never lost. The result is a new commit with
   // `target`'s tree and both `from` and `target` as parents, so nothing recorded becomes unreachable;
-  // `ref` points at it and it is returned.
-  restore(target: string, ref: string, from: string, message: string): Promise<string> {
+  // `ref` points at it and it is returned. With `createRef`, `ref` is a new branch's and must not exist
+  // yet (refs are files: on a case-insensitive disk `Main` is `main`). The commit is made before the
+  // files are touched, so only moving the ref can fail after them.
+  restore(target: string, ref: string, from: string, message: string, createRef = false): Promise<string> {
     return this.serial(async runner => {
+      if (createRef && (await this.exec(['rev-parse', '--verify', '-q', ref], { runner })).exitCode === 0) throw new Error('branch ref already exists')
       await this.git(['add', '-A'], { runner })
       const tree = (await this.git(['write-tree'], { runner })).trim()
       const fromTree = (await this.git(['rev-parse', `${from}^{tree}`], { runner })).trim()
       if (tree !== fromTree) throw new Error('the work tree changed since the last snapshot; run the restore again')
-      await this.git(['read-tree', '-u', '--reset', target], { runner })
       const commit = (await this.git(['commit-tree', `${target}^{tree}`, '-p', from, '-p', target, '-m', message], { runner })).trim()
-      await this.git(['update-ref', ref, commit], { runner })
+      await this.git(['read-tree', '-u', '--reset', target], { runner })
+      try {
+        await this.git(['update-ref', ref, commit], { runner })
+      } catch (error) {
+        throw new Error(`files were restored but the restore could not be recorded: ${error instanceof Error ? error.message : String(error)}`)
+      }
       return commit
     })
   }

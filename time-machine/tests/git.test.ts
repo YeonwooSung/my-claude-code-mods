@@ -134,9 +134,9 @@ test('restore, export, init, deleteRefs and gc issue the expected commands', asy
   )
   const g = G(f)
   expect(await g.restore('c3', 'refs/tm/s1/main', 'c2', 'restore to step 3')).toBe('c4')
-  expect(f.subs()).toEqual(['add', 'write-tree', 'rev-parse', 'read-tree', 'commit-tree', 'update-ref'])
-  expect(f.calls[3]!.argv.slice(-4)).toEqual(['read-tree', '-u', '--reset', 'c3'])
-  expect(f.calls[4]!.argv.slice(-8)).toEqual(['commit-tree', 'c3^{tree}', '-p', 'c2', '-p', 'c3', '-m', 'restore to step 3'])
+  expect(f.subs()).toEqual(['add', 'write-tree', 'rev-parse', 'commit-tree', 'read-tree', 'update-ref'])
+  expect(f.calls[3]!.argv.slice(-8)).toEqual(['commit-tree', 'c3^{tree}', '-p', 'c2', '-p', 'c3', '-m', 'restore to step 3'])
+  expect(f.calls[4]!.argv.slice(-4)).toEqual(['read-tree', '-u', '--reset', 'c3'])
   expect(f.calls[5]!.argv.slice(-3)).toEqual(['update-ref', 'refs/tm/s1/main', 'c4'])
   await g.exportTo('c3', '/s/tmp/x')
   const exp = f.calls[6]!
@@ -208,4 +208,32 @@ test('restore refuses, touching nothing, when the work tree moved past the snaps
 test('GitError prefers the fatal or error line over warnings', () => {
   const e = new GitError(['add'], { exitCode: 1, stdout: '', stderr: 'warning: adding embedded git repository\nhint: x\nfatal: boom\n' })
   expect(e.message).toBe('git add failed (1): fatal: boom')
+})
+
+test('restore onto a new branch refuses, touching nothing, when its ref already exists', async () => {
+  const f = fake(sub => (sub === 'verify' ? { stdout: 'c9\n' } : sub === 'write-tree' || sub === 'rev-parse' ? { stdout: 't\n' } : undefined))
+  let error: unknown
+  try {
+    await G(f).restore('c3', 'refs/tm/s1/Main', 'c2', 'm', true)
+  } catch (e) {
+    error = e
+  }
+  expect(String((error as Error).message)).toBe('branch ref already exists')
+  expect(f.subs()).toEqual(['verify'])
+  const absent = fake(sub => (sub === 'write-tree' || sub === 'rev-parse' ? { stdout: 't\n' } : sub === 'commit-tree' ? { stdout: 'c4\n' } : undefined))
+  expect(await G(absent).restore('c3', 'refs/tm/s1/b1', 'c2', 'm', true)).toBe('c4')
+  expect(absent.subs()).toEqual(['verify', 'add', 'write-tree', 'rev-parse', 'commit-tree', 'read-tree', 'update-ref'])
+})
+
+test('a ref that cannot be moved after the files were restored is reported as such', async () => {
+  const f = fake(sub =>
+    sub === 'write-tree' || sub === 'rev-parse' ? { stdout: 't\n' } : sub === 'commit-tree' ? { stdout: 'c4\n' } : sub === 'update-ref' ? { exitCode: 128, stderr: 'fatal: disk full' } : undefined,
+  )
+  let error: unknown
+  try {
+    await G(f).restore('c3', 'r', 'c2', 'm')
+  } catch (e) {
+    error = e
+  }
+  expect(String((error as Error).message)).toBe('files were restored but the restore could not be recorded: git update-ref failed (128): fatal: disk full')
 })

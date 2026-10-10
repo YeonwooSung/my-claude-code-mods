@@ -1,6 +1,8 @@
 import type { On } from 'claude-code'
 import { type Engine, expect, mock, test } from 'claude-code/testing'
 
+import { branchTaken } from '../hooks/core/timeline.ts'
+
 const PYTEST_FAIL = `FAILED tests/test_auth.py::test_login - AssertionError\ntests/test_auth.py:12: AssertionError\n========================= 1 failed, 4 passed in 0.10s =========================`
 
 // The runner's `$` has no `process`, so git is unavailable here: these tests run the "snapshots off" path.
@@ -108,8 +110,8 @@ test('/tm restore --yes runs only from an origin a person typed', async ($, on) 
   await recordSome($, on, new Map())
   const run = async (args: string, kind: string): Promise<string> =>
     String((await $.command.run({ command: 'tm', args, origin: { kind } } as never)).text)
-  expect(await run('restore 1 --yes', 'channel')).toBe('time-machine: restore changes files or runs commands and only runs when you type it')
-  expect(await run('rerun 2 --write', 'scheduled-trigger')).toContain('rerun changes files or runs commands')
+  expect(await run('restore 1 --yes', 'channel')).toBe('time-machine: restore changes files or runs commands and only runs when you type it (this came from channel)')
+  expect(await run('rerun 2 --write', 'scheduled-trigger')).toContain('rerun changes files or runs commands and only runs when you type it (this came from scheduled-trigger)')
   expect(await run('restore 1', 'channel')).toContain('snapshots are off')
   expect(await run('restore 1 --yes', 'composer')).toContain('snapshots are off')
 })
@@ -122,4 +124,11 @@ test('each session start in one module load writes chunks under its own names', 
   const names = [...writes.keys()].filter(p => p.endsWith('.jsonl')).map(p => p.slice(p.lastIndexOf('/') + 1))
   expect(names.length).toBe(2)
   expect(names[0]! < names[1]!).toBe(true)
+})
+
+test('branch names are taken case-insensitively, since refs are files', () => {
+  const rec = { branches: new Map([['main', { name: 'main', fromStep: 0, at: 0 }], ['b1', { name: 'b1', fromStep: 2, at: 1 }]]) }
+  expect(branchTaken(rec, 'Main')).toBe(true)
+  expect(branchTaken(rec, 'B1')).toBe(true)
+  expect(branchTaken(rec, 'b2')).toBe(false)
 })

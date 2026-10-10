@@ -201,3 +201,9 @@ export class Recorder {
     this.version += 1
   }
 }
+
+// Branch refs are files: on a case-insensitive disk `Main` and `main` are one ref.
+export function branchTaken(rec: Pick<Recorder, 'branches'>, name: string): boolean {
+  const lower = name.toLowerCase()
+  return [...rec.branches.keys()].some(b => b.toLowerCase() === lower)
+}
