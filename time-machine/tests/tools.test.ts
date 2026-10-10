@@ -56,5 +56,7 @@ test('free-text targets are one line, bounded and redacted', () => {
   const grep = targetOf('Grep', { pattern: `a\nb${'x'.repeat(500)}` }, '/r')!
   expect(grep).not.toContain('\n')
   expect(grep.length).toBeLessThanOrEqual(120)
-  expect(targetOf('WebFetch', { url: 'https://x/?api_key=sekret123' }, '/r')).toBeDefined()
+  const url = targetOf('WebFetch', { url: 'https://x/?api_key=sekret123' }, '/r')!
+  expect(url).not.toContain('sekret123')
+  expect(url).toContain('[REDACTED]')
 })
