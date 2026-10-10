@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { GitError, isInside, parseNameStatus, ShadowGit, type RunResult, type Runner } from '../hooks/git.ts'
+import { GitError, ignoredConflicts, isInside, parseNameStatus, ShadowGit, type RunResult, type Runner } from '../hooks/git.ts'
 
 type Call = { argv: readonly string[]; env?: Record<string, string>; cwd?: string }
 
@@ -134,18 +134,20 @@ test('restore, export, init, deleteRefs and gc issue the expected commands', asy
   )
   const g = G(f)
   expect(await g.restore('c3', 'refs/tm/s1/main', 'c2', 'restore to step 3')).toBe('c4')
-  expect(f.subs()).toEqual(['add', 'write-tree', 'rev-parse', 'commit-tree', 'read-tree', 'update-ref'])
-  expect(f.calls[3]!.argv.slice(-8)).toEqual(['commit-tree', 'c3^{tree}', '-p', 'c2', '-p', 'c3', '-m', 'restore to step 3'])
-  expect(f.calls[4]!.argv.slice(-4)).toEqual(['read-tree', '-u', '--reset', 'c3'])
-  expect(f.calls[5]!.argv.slice(-3)).toEqual(['update-ref', 'refs/tm/s1/main', 'c4'])
+  expect(f.subs()).toEqual(['add', 'write-tree', 'rev-parse', 'ls-files', 'ls-tree', 'commit-tree', 'read-tree', 'update-ref'])
+  expect(f.calls[3]!.argv.slice(-6)).toEqual(['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'])
+  expect(f.calls[4]!.argv.slice(-5)).toEqual(['ls-tree', '-r', '-z', '--name-only', 'c3'])
+  expect(f.calls[5]!.argv.slice(-8)).toEqual(['commit-tree', 'c3^{tree}', '-p', 'c2', '-p', 'c3', '-m', 'restore to step 3'])
+  expect(f.calls[6]!.argv.slice(-4)).toEqual(['read-tree', '-u', '--reset', 'c3'])
+  expect(f.calls[7]!.argv.slice(-3)).toEqual(['update-ref', 'refs/tm/s1/main', 'c4'])
   await g.exportTo('c3', '/s/tmp/x')
-  const exp = f.calls[6]!
+  const exp = f.calls[8]!
   expect(exp.argv).toContain('--work-tree=/s/tmp/x')
   expect(exp.env!.GIT_INDEX_FILE).toBe('/s/tmp/x.index')
   expect(exp.cwd).toBe('/s/tmp/x')
   await g.init()
-  expect(f.calls[7]!.argv).toEqual(['git', 'init', '--bare', '--quiet', '/s/shadow.git'])
-  expect(f.calls[8]!.argv).toEqual([
+  expect(f.calls[9]!.argv).toEqual(['git', 'init', '--bare', '--quiet', '/s/shadow.git'])
+  expect(f.calls[10]!.argv).toEqual([
     'sh',
     '-c',
     'if [ -f "$1" ]; then mkdir -p "$(dirname "$2")" && cp "$1" "$2"; fi',
@@ -154,7 +156,7 @@ test('restore, export, init, deleteRefs and gc issue the expected commands', asy
     '/s/shadow.git/info/exclude',
   ])
   await g.deleteRefs('refs/tm/old/')
-  expect(f.calls.slice(10).map(c => c.argv.slice(-3))).toEqual([
+  expect(f.calls.slice(12).map(c => c.argv.slice(-3))).toEqual([
     ['update-ref', '-d', 'refs/tm/old/main'],
     ['update-ref', '-d', 'refs/tm/old/b1'],
   ])
@@ -222,7 +224,7 @@ test('restore onto a new branch refuses, touching nothing, when its ref already 
   expect(f.subs()).toEqual(['verify'])
   const absent = fake(sub => (sub === 'write-tree' || sub === 'rev-parse' ? { stdout: 't\n' } : sub === 'commit-tree' ? { stdout: 'c4\n' } : undefined))
   expect(await G(absent).restore('c3', 'refs/tm/s1/b1', 'c2', 'm', true)).toBe('c4')
-  expect(absent.subs()).toEqual(['verify', 'add', 'write-tree', 'rev-parse', 'commit-tree', 'read-tree', 'update-ref'])
+  expect(absent.subs()).toEqual(['verify', 'add', 'write-tree', 'rev-parse', 'ls-files', 'ls-tree', 'commit-tree', 'read-tree', 'update-ref'])
 })
 
 test('a ref that cannot be moved after the files were restored is reported as such', async () => {
@@ -236,4 +238,35 @@ test('a ref that cannot be moved after the files were restored is reported as su
     error = e
   }
   expect(String((error as Error).message)).toBe('files were restored but the restore could not be recorded: git update-ref failed (128): fatal: disk full')
+})
+
+test('restore refuses, touching nothing, when the target would overwrite ignored files no snapshot holds', async () => {
+  const f = fake(sub =>
+    sub === 'write-tree' || sub === 'rev-parse'
+      ? { stdout: 't\n' }
+      : sub === 'ls-files'
+        ? { stdout: '.env\0out/\0keep.log\0' }
+        : sub === 'ls-tree'
+          ? { stdout: '.env\0a.txt\0out\0' }
+          : undefined,
+  )
+  let error: unknown
+  try {
+    await G(f).restore('c3', 'r', 'c2', 'm')
+  } catch (e) {
+    error = e
+  }
+  expect(String((error as Error).message)).toBe('restore would overwrite ignored files that no snapshot holds: .env, out; move them aside and run the restore again')
+  expect(f.subs()).toEqual(['add', 'write-tree', 'rev-parse', 'ls-files', 'ls-tree'])
+})
+
+test('ignoredConflicts: equal paths, and one path a directory prefix of the other', () => {
+  expect(ignoredConflicts(['keep.log', 'build/'], ['a.txt', 'src/x.ts'])).toEqual([])
+  expect(ignoredConflicts(['.env'], ['.env'])).toEqual(['.env'])
+  expect(ignoredConflicts(['out/'], ['out'])).toEqual(['out'])
+  expect(ignoredConflicts(['out/'], ['out/x/y.js'])).toEqual(['out'])
+  expect(ignoredConflicts(['d'], ['d/f'])).toEqual(['d'])
+  expect(ignoredConflicts(['a/b.log'], ['a'])).toEqual(['a/b.log'])
+  expect(ignoredConflicts(['a/b.log'], ['a/c.ts'])).toEqual([])
+  expect(ignoredConflicts(['ab'], ['a', 'abc/d'])).toEqual([])
 })

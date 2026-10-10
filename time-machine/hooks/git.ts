@@ -48,6 +48,23 @@ export function isInside(child: string, parent: string): boolean {
   return !c.split('/').slice(1).some(seg => seg === '' || seg === '.' || seg === '..')
 }
 
+// Ignored, untracked paths (`ls-files --directory`: a wholly ignored directory as `dir/`) that a tree's
+// paths would overwrite or delete: an equal path, or one a directory prefix of the other.
+export function ignoredConflicts(ignored: readonly string[], target: readonly string[]): string[] {
+  const ign = new Set(ignored.map(p => p.replace(/\/+$/, '')).filter(p => p !== ''))
+  const tgt = new Set(target.filter(p => p !== ''))
+  const dirsOf = (path: string): string[] => {
+    const parts = path.split('/')
+    return parts.slice(1).map((_, i) => parts.slice(0, i + 1).join('/'))
+  }
+  const out = new Set<string>()
+  for (const t of tgt) for (const p of [t, ...dirsOf(t)]) if (ign.has(p)) out.add(p)
+  for (const i of ign) if (dirsOf(i).some(d => tgt.has(d))) out.add(i)
+  return [...out].sort()
+}
+
+const MAX_NAMED = 10
+
 // A bare repository beside the project: its own index per session, the project as work tree, so the
 // user's .git is never read or written. The host's `.gitignore` files apply.
 export class ShadowGit {
@@ -154,7 +171,8 @@ export class ShadowGit {
   // `target`'s tree and both `from` and `target` as parents, so nothing recorded becomes unreachable;
   // `ref` points at it and it is returned. With `createRef`, `ref` is a new branch's and must not exist
   // yet (refs are files: on a case-insensitive disk `Main` is `main`). The commit is made before the
-  // files are touched, so only moving the ref can fail after them.
+  // files are touched, so only moving the ref can fail after them. Ignored files are never snapshotted:
+  // one `target` would overwrite or delete makes the restore refuse, touching nothing.
   restore(target: string, ref: string, from: string, message: string, createRef = false): Promise<string> {
     return this.serial(async runner => {
       if (createRef && (await this.exec(['rev-parse', '--verify', '-q', ref], { runner })).exitCode === 0) throw new Error('branch ref already exists')
@@ -162,6 +180,13 @@ export class ShadowGit {
       const tree = (await this.git(['write-tree'], { runner })).trim()
       const fromTree = (await this.git(['rev-parse', `${from}^{tree}`], { runner })).trim()
       if (tree !== fromTree) throw new Error('the work tree changed since the last snapshot; run the restore again')
+      const nul = (out: string): string[] => out.split('\0').filter(p => p !== '')
+      const ignored = nul(await this.git(['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'], { runner }))
+      const conflicts = ignoredConflicts(ignored, nul(await this.git(['ls-tree', '-r', '-z', '--name-only', target], { runner })))
+      if (conflicts.length > 0) {
+        const more = conflicts.length > MAX_NAMED ? ` (and ${conflicts.length - MAX_NAMED} more)` : ''
+        throw new Error(`restore would overwrite ignored files that no snapshot holds: ${conflicts.slice(0, MAX_NAMED).join(', ')}${more}; move them aside and run the restore again`)
+      }
       const commit = (await this.git(['commit-tree', `${target}^{tree}`, '-p', from, '-p', target, '-m', message], { runner })).trim()
       await this.git(['read-tree', '-u', '--reset', target], { runner })
       try {
