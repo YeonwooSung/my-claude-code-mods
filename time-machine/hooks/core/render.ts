@@ -168,6 +168,19 @@ export function renderRerun(step: Step, c: OutputComparison, where: string): str
   return lines.join('\n')
 }
 
+// `/tm rerun n --isolated` without `--yes`: the command first, then where it would run and why it may not.
+// `before` is the step whose snapshot the copy would hold; `blocked` says why it cannot run now.
+export function renderIsolatedPlan(step: Step, command: string, before: Step | undefined, blocked?: string): string {
+  const copy = before?.snapshot ? `a throwaway copy of ${circled(before.n)}'s snapshot (${before.snapshot.commit.slice(0, 7)})` : 'a throwaway copy of the snapshot before it'
+  const lines = [
+    `$ ${command}`,
+    `Dry run of ${circled(step.n)} ${label(step)}: nothing ran. With --yes this runs through \`sh -lc\` in ${copy}, without a permission prompt.`,
+    'Caveats: ignored files such as dependencies are not in the copy; the command still reaches any absolute path it names and your home directory; a change it makes to the project is recorded as an external step.',
+  ]
+  lines.push(blocked !== undefined ? `It would not run now: ${blocked}` : `Run /tm rerun ${step.n} --isolated --yes to run it.`)
+  return lines.join('\n')
+}
+
 // `step` is the step asked for; `target` the step whose snapshot is used (the same, or the nearest earlier one).
 export function renderRestorePlan(step: Step, target: Step, files: readonly FileChange[], applied: boolean, branch?: string, told = true): string {
   const n = step.n

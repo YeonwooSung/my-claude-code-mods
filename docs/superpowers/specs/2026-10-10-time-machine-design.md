@@ -153,6 +153,7 @@ time-machine/
     결과 비교: 해시 같음 → "identical"; 다르면 head 기준 줄 diff 요약(+/− 줄 수, 처음 다른 줄 3개). 테스트면 TestRun 비교(passed/failed 변화).
   - `--isolated`(Bash만): step n 직전 스냅샷을 임시 디렉터리(`<storeDir>/<projectKey>/tmp/<rand>`)에 `git archive | tar -x`(또는 `checkout-index --prefix`)로 풀고 `$.process.run(['sh','-lc',command], { cwd: tmp, timeoutMs })`로 실행 → 결과 비교 → 임시 디렉터리 삭제.
     무시 파일(의존성 등)이 없으므로 best effort이며, 출력 머리에 그 사실을 적는다. 이 경로는 권한 다이얼로그를 거치지 않으므로 사용자 명령으로만 실행되고, 실행할 명령을 출력에 먼저 보인다.
+    `--yes` 없는 `--isolated`는 dry run이다: 명령(`$ <command>`), 쓸 스냅샷, 주의점, 실행 방법만 보이고 아무것도 실행하지 않는다(어느 origin에서든). `--yes`가 있으면(사용자 입력 origin만) 명령이 프로젝트 루트의 절대 경로를 담을 때 거부하고("the command refers to the project's absolute path, so it would not be isolated"), 아니면 실행 전후로 외부 변경을 검사해 프로젝트에 생긴 변경을 `external` step으로 남긴다.
 - 모델 응답은 재실행하지 않는다(§9).
 
 ### 4.8 UI와 명령
@@ -232,3 +233,4 @@ mods API로 가능한 구조:
 4. `turn.step`은 생성기 훅이라 `.catch`를 달지 않고, 기록은 모두 try 안에서 한다.
 5. git 래퍼는 훅마다 그 훅의 `$`로 만든 Runner를 쓴다(`git.runner = runnerOf($)`).
 6. 재실행 입력: 이번 로드에서 기록한 step은 메모리에 둔 원래 입력으로 재실행한다. 저장된 입력은 잘리거나 마스킹됐을 수 있어(`inputLossy`) 그런 step은 다른 로드에서 재실행하지 않는다.
+7. **저장소 위치**: `storeDir`(`~` 확장 후)가 절대 경로가 아니면 스냅샷 꺼짐("storeDir must be an absolute path"). 저장소(`<storeDir>/<projectKey>`)가 프로젝트 안이면 꺼짐("the time-machine store is inside the project") — 스냅샷이 저장소 자신을 담게 되므로.

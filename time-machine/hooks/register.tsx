@@ -1,13 +1,14 @@
 import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
 import { why } from './core/causality.ts'
-import { classifyCommand } from './core/classify.ts'
+import { classifyCommand, isolationProblem } from './core/classify.ts'
 import { compare, compareOutputs } from './core/compare.ts'
 import { contentHash } from './core/hash.ts'
 import {
   circled,
   label,
   renderCompare,
+  renderIsolatedPlan,
   renderRerun,
   renderRestorePlan,
   renderSessions,
@@ -30,7 +31,7 @@ const DAY = 86_400_000
 const TOO_SLOW_MS = 5_000
 const MAX_LIVE_INPUTS = 500
 const USAGE =
-  'usage: /tm [timeline [--all] [--branch b] | show <n> | diff <a> [b] | why [n] | restore <n> [--yes] | branch <n> [name] [--yes] | compare <a> <b> | rerun <n> [--write] [--isolated] | sessions]'
+  'usage: /tm [timeline [--all] [--branch b] | show <n> | diff <a> [b] | why [n] | restore <n> [--yes] | branch <n> [name] [--yes] | compare <a> <b> | rerun <n> [--write] [--isolated [--yes]] | sessions]'
 
 type Ctx = {
   rec: Recorder
@@ -153,6 +154,11 @@ async function ensureGit($: EngineInterface, c: Ctx): Promise<ShadowGit | undefi
     const home = await $.env.get('HOME').catch(() => undefined)
     if (c.root === '/' || (home !== undefined && c.root.replace(/\/+$/, '') === home.replace(/\/+$/, ''))) {
       c.off = 'the session root is the home or the root directory'
+    } else if (!c.base.startsWith('/') || /(^|\/)\.\.?(\/|$)/.test(c.base)) {
+      c.off = 'storeDir must be an absolute path'
+    } else if (c.base === c.root || isInside(c.base, c.root)) {
+      // Its own files would be snapshotted, and every snapshot would change it.
+      c.off = 'the time-machine store is inside the project'
     }
     if (c.off) return
     try {
@@ -204,12 +210,13 @@ async function takeSnapshot($: EngineInterface, c: Ctx, label: string): Promise<
 }
 
 // Changes made outside the agent since the last snapshot become an `external` step of their own.
-async function checkExternal($: EngineInterface, c: Ctx): Promise<void> {
-  if (c.inflight > 0) return
+async function checkExternal($: EngineInterface, c: Ctx): Promise<Step | undefined> {
+  if (c.inflight > 0) return undefined
   const snap = await takeSnapshot($, c, 'external')
-  if (!snap?.changed) return
+  if (!snap?.changed) return undefined
   const step = c.rec.begin({ id: `external-${Date.now()}`, tool: 'external', kind: 'external', at: Date.now() })
   c.rec.finish(step, Date.now(), { snapshot: snap })
+  return step
 }
 
 async function prune($: EngineInterface, c: Ctx, git: ShadowGit): Promise<void> {
@@ -261,13 +268,13 @@ async function settle($: EngineInterface, c: Ctx, step: Step | undefined, counte
 // Origins a person typed: the only ones allowed to change files or run commands through /tm.
 const TYPED = new Set(['composer', 'bridge', 'sdk'])
 
-// The subcommand, when `args` would change files or run commands (restore/branch --yes, rerun --write/--isolated).
+// The subcommand, when `args` would change files or run commands (restore/branch --yes, rerun --write, rerun --isolated --yes).
 function changesFiles(args: string): string | undefined {
   const words = args.trim().split(/\s+/).filter(w => w !== '')
   const sub = words.find(w => !w.startsWith('--'))
   const flags = new Set(words.filter(w => w.startsWith('--')))
   if ((sub === 'restore' || sub === 'branch') && flags.has('--yes')) return sub
-  if (sub === 'rerun' && (flags.has('--write') || flags.has('--isolated'))) return sub
+  if (sub === 'rerun' && (flags.has('--write') || (flags.has('--isolated') && flags.has('--yes')))) return sub
   return undefined
 }
 
@@ -341,21 +348,27 @@ async function pathOf($: EngineInterface, c: Ctx, spec: string): Promise<{ steps
   return head !== undefined ? { steps, head } : { steps }
 }
 
-async function rerun($: EngineInterface, c: Ctx, n: number, write: boolean, isolated: boolean): Promise<string> {
+async function rerun($: EngineInterface, c: Ctx, n: number, write: boolean, isolated: boolean, yes: boolean): Promise<string> {
   const step = c.rec.get(n)
   if (!step || step.kind !== 'tool') return `time-machine: no tool step ${n}`
   const input = c.live.get(n) ?? (step.inputLossy ? undefined : step.input)
   if (!input) return `time-machine: step ${n}'s input was cut or redacted when stored and this load did not record it live, so it cannot be replayed`
   if (isolated) {
     if (step.tool !== 'Bash') return 'time-machine: --isolated replays Bash steps only'
-    const git = await ensureGit($, c)
-    if (!git) return `time-machine: snapshots are off (${c.off ?? 'not ready'})`
-    const before = c.rec.snapshotAt(step.parent)
-    if (!before?.snapshot) return `time-machine: no snapshot before step ${n}`
     const command = String(input.command ?? '')
+    const problem = isolationProblem(command, c.root)
+    if (yes && problem) return `$ ${command}\ntime-machine: ${problem}`
+    const git = await ensureGit($, c)
+    const before = git ? c.rec.snapshotAt(step.parent) : undefined
+    const blocked = !git ? `snapshots are off (${c.off ?? 'not ready'})` : !before?.snapshot ? `no snapshot before step ${n}` : problem
+    if (!yes) return renderIsolatedPlan(step, command, before, blocked)
+    if (!git || !before?.snapshot) return `$ ${command}\ntime-machine: ${blocked}`
     const tmpRoot = `${c.base}/tmp`
     const tmp = `${tmpRoot}/${LOAD_ID}-${n}-${Date.now().toString(36)}`
     const run = runnerOf($)
+    // Changes made before it are not the command's; one it makes to the project anyway is recorded.
+    await checkExternal($, c)
+    let out: string
     try {
       await run(['mkdir', '-p', tmp])
       await git.exportTo(before.snapshot.commit, tmp)
@@ -363,10 +376,17 @@ async function rerun($: EngineInterface, c: Ctx, n: number, write: boolean, isol
       const text = [r.stdout, r.stderr].filter(s => s !== '').join('\n')
       const now = step.test ? parseTestOutput(text, r.exitCode !== 0) : undefined
       const where = `isolated, in a copy of ${circled(before.n)}'s snapshot; ignored files such as dependencies are not in the copy`
-      return [`$ ${command}`, renderRerun(step, compareOutputs(step.result, text, step.test, now), where)].join('\n')
+      out = [`$ ${command}`, renderRerun(step, compareOutputs(step.result, text, step.test, now), where)].join('\n')
     } finally {
       if (isInside(tmp, tmpRoot)) await run(['rm', '-rf', tmp, `${tmp}.index`]).catch(() => undefined)
     }
+    const stray = await checkExternal($, c)
+    if (stray) {
+      await persist($, c)
+      paint($, c)
+      out += `\nThe project changed while it ran: recorded as ${circled(stray.n)} ${label(stray)}.`
+    }
+    return out
   }
   if (isMutating(step.tool, input, currentOptions.skipSearchBash === true) && !write)
     return `time-machine: step ${n} (${step.tool}) can change files; add --write to run it again here (a snapshot is taken after it)`
@@ -448,7 +468,7 @@ async function runTm($: EngineInterface, c: Ctx, args: string): Promise<string> 
     case 'rerun': {
       const n = num(rest[1])
       if (n === undefined) return USAGE
-      return rerun($, c, n, flags.has('--write'), flags.has('--isolated'))
+      return rerun($, c, n, flags.has('--write'), flags.has('--isolated'), flags.has('--yes'))
     }
     case 'sessions': {
       const sessions = `${c.base}/sessions`

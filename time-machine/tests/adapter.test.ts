@@ -112,6 +112,7 @@ test('/tm restore --yes runs only from an origin a person typed', async ($, on) 
     String((await $.command.run({ command: 'tm', args, origin: { kind } } as never)).text)
   expect(await run('restore 1 --yes', 'channel')).toBe('time-machine: restore changes files or runs commands and only runs when you type it (this came from channel)')
   expect(await run('rerun 2 --write', 'scheduled-trigger')).toContain('rerun changes files or runs commands and only runs when you type it (this came from scheduled-trigger)')
+  expect(await run('rerun 2 --isolated --yes', 'channel')).toContain('rerun changes files or runs commands and only runs when you type it (this came from channel)')
   expect(await run('restore 1', 'channel')).toContain('snapshots are off')
   expect(await run('restore 1 --yes', 'composer')).toContain('snapshots are off')
 })
@@ -131,4 +132,30 @@ test('branch names are taken case-insensitively, since refs are files', () => {
   expect(branchTaken(rec, 'Main')).toBe(true)
   expect(branchTaken(rec, 'B1')).toBe(true)
   expect(branchTaken(rec, 'b2')).toBe(false)
+})
+
+test('/tm rerun --isolated without --yes is a dry run that shows the command first, from any origin', async ($, on) => {
+  await recordSome($, on, new Map())
+  const text = String((await $.command.run({ command: 'tm', args: 'rerun 2 --isolated', origin: { kind: 'channel' } } as never)).text)
+  expect(text.split('\n')[0]).toBe('$ pytest -q')
+  expect(text).toContain('Dry run')
+  expect(text).toContain('--yes')
+})
+
+test('/tm rerun --isolated --yes refuses a command that names the project root', async ($, on) => {
+  world(on, new Map())
+  await $.session.start({ cwd: '/r', surface: null, isInteractive: false } as never)
+  await $.tool.call({ tool: 'Bash', command: 'pytest /r/tests', tool_use_id: 't1' } as never)
+  const text = String((await $.command.run({ command: 'tm', args: 'rerun 1 --isolated --yes', origin: { kind: 'composer' } } as never)).text)
+  expect(text).toBe("$ pytest /r/tests\ntime-machine: the command refers to the project's absolute path, so it would not be isolated")
+})
+
+test('a store inside the project turns snapshots off, and says so', { options: { storeDir: '/r/.tm' } }, async ($, on) => {
+  await recordSome($, on, new Map())
+  expect(String((await $.command.run({ command: 'tm', args: '' } as never)).text)).toContain('snapshots off: the time-machine store is inside the project')
+})
+
+test('a relative store turns snapshots off, and says so', { options: { storeDir: 'tm-store' } }, async ($, on) => {
+  await recordSome($, on, new Map())
+  expect(String((await $.command.run({ command: 'tm', args: '' } as never)).text)).toContain('snapshots off: storeDir must be an absolute path')
 })

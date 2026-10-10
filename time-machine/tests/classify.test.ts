@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { classifyCommand } from '../hooks/core/classify.ts'
+import { classifyCommand, isolationProblem } from '../hooks/core/classify.ts'
 
 test('common runners and tools', () => {
   expect(classifyCommand('npm test')).toBe('test')
@@ -87,4 +87,16 @@ test('non-string input returns other', () => {
   expect(classifyCommand(undefined as unknown as string)).toBe('other')
   expect(classifyCommand(null as unknown as string)).toBe('other')
   expect(classifyCommand(123 as unknown as string)).toBe('other')
+})
+
+test('isolationProblem: a command naming the project root by its absolute path is not isolated', () => {
+  const problem = "the command refers to the project's absolute path, so it would not be isolated"
+  expect(isolationProblem('pytest /work/app/tests', '/work/app')).toBe(problem)
+  expect(isolationProblem('cd /work/app && make', '/work/app/')).toBe(problem)
+  expect(isolationProblem('node --root="/work/app"', '/work/app')).toBe(problem)
+  expect(isolationProblem('rm -rf /work/app', '/work/app')).toBe(problem)
+  expect(isolationProblem('pytest -q tests/', '/work/app')).toBeUndefined()
+  expect(isolationProblem('ls /work/apple /work/app.bak', '/work/app')).toBeUndefined()
+  expect(isolationProblem('ls /x/work/app', '/work/app')).toBeUndefined()
+  expect(isolationProblem('ls /', '/')).toBeUndefined()
 })

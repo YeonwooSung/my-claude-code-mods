@@ -179,3 +179,12 @@ export function classifyCommand(command: string): BashCategory {
   }
   return best
 }
+
+// `--isolated` changes only the working directory: a command that names the project root by its
+// absolute path still reaches the real tree.
+export function isolationProblem(command: string, root: string): string | undefined {
+  const base = root.replace(/\/+$/, '')
+  if (base === '') return undefined
+  const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(^|[^\\w./~-])${escaped}(?=$|[^\\w.-])`).test(command) ? "the command refers to the project's absolute path, so it would not be isolated" : undefined
+}
