@@ -1,5 +1,8 @@
 export type FileChange = { status: string; path: string }
 
+// Changed-file lists keep this many entries, plus a total.
+export const MAX_FILES = 200
+
 export type SnapshotRef = {
   commit: string
   // False when the tree matched the previous snapshot: `commit` is that snapshot.

@@ -97,3 +97,34 @@ test('compareOutputs: identical by hash, else line differences on the first 2 Ki
   expect(c.removed).toEqual(['b'])
   expect(c.now).toBe(passing)
 })
+
+test('why on a branch does not blame a file changed only on the branch it left', () => {
+  const r = new Recorder(session)
+  r.baseline(1, { commit: 'c0', changed: true, files: [], filesTotal: 2, ms: 9 })
+  const add = (tool: string, target: string, extra: { snapshot?: SnapshotRef; test?: TestRun } = {}): void => {
+    r.finish(r.begin({ id: `${tool}-${target}`, tool, target, at: 2 }), 3, extra)
+  }
+  add('Edit', 'app.js', { snapshot: snap('c1', 'app.js') })
+  add('Bash', 'node --test', { test: passing })
+  add('Edit', 'main-only.js', { snapshot: snap('c3', 'main-only.js') })
+  add('Bash', 'node --test', { test: failing(1, []) })
+  const restored = r.restoreStep({ at: 5, to: 2, from: 'c3', commit: 'cR', files: [{ status: 'D', path: 'main-only.js' }], branch: 'fixb' })
+  expect([restored.n, restored.parent, restored.branch]).toEqual([5, 2, 'fixb'])
+  expect(restored.snapshot).toEqual({ commit: 'cR', changed: true, files: [], filesTotal: 0, ms: 0 })
+  expect(restored.input).toEqual({ to: 2, from: 'c3', workTree: [{ status: 'D', path: 'main-only.js' }] })
+  add('Edit', 'other.js', { snapshot: snap('c6', 'other.js') })
+  add('Bash', 'node --test', { test: failing(1, []) })
+  const w = why(r.path())!
+  expect(w.run.n).toBe(7)
+  expect(w.suspects.map(s => s.path)).toEqual(['other.js'])
+})
+
+test('a restore on the same branch keeps the files it changed, which are on the path', () => {
+  const r = new Recorder(session)
+  r.baseline(1, { commit: 'c0', changed: true, files: [], filesTotal: 2, ms: 9 })
+  r.finish(r.begin({ id: 'e', tool: 'Edit', target: 'a.js', at: 2 }), 3, { snapshot: snap('c1', 'a.js') })
+  const restored = r.restoreStep({ at: 4, to: 0, from: 'c1', commit: 'cR', files: [{ status: 'D', path: 'a.js' }] })
+  expect([restored.parent, restored.branch]).toEqual([1, 'main'])
+  expect(restored.snapshot).toEqual({ commit: 'cR', changed: true, files: [{ status: 'D', path: 'a.js' }], filesTotal: 1, ms: 0 })
+  expect(restored.input).toEqual({ to: 0, from: 'c1' })
+})

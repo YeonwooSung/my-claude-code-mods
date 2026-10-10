@@ -47,8 +47,12 @@ export function notes(step: Step): string[] {
   else if (step.result?.denied) out.push('⊘ denied')
   else if (step.result?.isError) out.push('✗ error')
   if (step.kind === 'baseline') out.push(step.snapshot ? `snapshot ${step.snapshot.commit.slice(0, 7)} · ${step.snapshot.filesTotal} file(s)` : 'no snapshot')
-  else if (step.snapshot?.changed)
-    out.push(`snapshot ${step.snapshot.commit.slice(0, 7)} · ${filesSummary(step.snapshot.files, step.snapshot.filesTotal)}${step.snapshot.concurrent ? ' (concurrent)' : ''}`)
+  else if (step.snapshot?.changed) {
+    // A branch restore changed nothing along its path; how the work tree moved is in its input.
+    const workTree = step.kind === 'restore' && Array.isArray(step.input.workTree) ? (step.input.workTree as FileChange[]) : undefined
+    const files = workTree ? `work tree: ${filesSummary(workTree, workTree.length)}` : filesSummary(step.snapshot.files, step.snapshot.filesTotal)
+    out.push(`snapshot ${step.snapshot.commit.slice(0, 7)} · ${files}${step.snapshot.concurrent ? ' (concurrent)' : ''}`)
+  }
   if (step.rerunOf !== undefined) out.push(`rerun of ${circled(step.rerunOf)}`)
   return out
 }

@@ -116,3 +116,11 @@ test('restore plan says when the model note could not be added', () => {
   expect(renderRestorePlan(s, s, [], true, undefined, true)).toContain('The model was told the files changed.')
   expect(renderRestorePlan(s, s, [], true, undefined, false)).toContain('could not be added; tell it the files changed')
 })
+
+test('a branch restore shows how the work tree changed, though its snapshot lists no files', () => {
+  const r = new Recorder(session)
+  r.baseline(1, { commit: 'c0', changed: true, files: [], filesTotal: 1, ms: 9 })
+  r.finish(r.begin({ id: 'e', tool: 'Edit', target: 'a.js', at: 2 }), 3, { snapshot: snap('c1', 'a.js') })
+  r.restoreStep({ at: 4, to: 0, from: 'c1', commit: 'cR00000', files: [{ status: 'D', path: 'a.js' }], branch: 'b1' })
+  expect(renderTimeline(r)).toContain('└── snapshot cR00000 · work tree: D a.js')
+})

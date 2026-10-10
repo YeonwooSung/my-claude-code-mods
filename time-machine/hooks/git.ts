@@ -1,4 +1,6 @@
-import type { FileChange } from './core/types.ts'
+import { type FileChange, MAX_FILES } from './core/types.ts'
+
+export { MAX_FILES }
 
 export type RunResult = { exitCode: number; stdout: string; stderr: string }
 export type RunOptions = { env?: Record<string, string>; cwd?: string; timeoutMs?: number }
@@ -7,7 +9,6 @@ export type SnapResult = { commit: string; changed: boolean; files: FileChange[]
 
 type GitOptions = { index?: string; workTree?: string; timeoutMs?: number; runner?: Runner }
 
-export const MAX_FILES = 200
 const TIMEOUT_MS = 30_000
 const IDENTITY = {
   GIT_AUTHOR_NAME: 'time-machine',

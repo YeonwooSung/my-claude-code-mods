@@ -137,6 +137,7 @@ time-machine/
   3) 턴이 진행 중이면 거부(`busy`)하고 이유를 보인다(명령은 턴 사이에 실행된다).
 - `/tm branch <n> [name] [--yes]`: restore와 같되 이후 step들은 새 branch(`name`, 기본 `b<k>`)에 기록, `branch` 레코드 추가, ref `refs/tm/<sid>/<name>`.
   대화는 포크되지 않는다는 점을 출력과 노트에 적는다.
+  분기 복구 step의 트리는 step n의 트리와 같으므로 `snapshot.files = []`, `filesTotal = 0`이고(그래야 `/tm why`가 떠난 branch에서만 바뀐 파일을 용의자로 보지 않는다), 작업 트리 변경 목록은 표시용으로 입력의 `workTree: [{status, path}…]`(최대 200)에 둔다. 같은 branch의 복구는 바뀐 파일을 그대로 `snapshot.files`에 둔다.
 - 복구는 사용자 명령으로만 실행된다(모델이 부를 수 있는 도구로 노출하지 않는다).
 - 무시 파일은 스냅샷되지 않으므로, 대상 트리가 무시되고 추적되지 않는 경로를 덮어쓰거나 지울 때(같은 경로, 또는 한쪽이 다른 쪽의 디렉터리 접두: `out/` ↔ `out`, `d` ↔ `d/f`) 복구는 아무것도 건드리지 않고 거부한다: `restore would overwrite ignored files that no snapshot holds: <최대 10개>; move them aside and run the restore again`. 강제로 add하지 않는다(무시된 비밀값이 섀도 저장소로 복사되므로). 검사는 `ls-files -z --others --ignored --exclude-standard --directory`와 `ls-tree -r -z --name-only <target>`로, 직렬 큐 안에서 commit-tree 전에 한다.
 

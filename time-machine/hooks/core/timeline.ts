@@ -1,5 +1,5 @@
 import { contentHash } from './hash.ts'
-import type { BranchRec, ModelRec, Rec, SessionRec, SnapshotRef, Step, StepKind, StepResult, TestRun, TurnRec } from './types.ts'
+import { type BranchRec, type FileChange, MAX_FILES, type ModelRec, type Rec, type SessionRec, type SnapshotRef, type Step, type StepKind, type StepResult, type TestRun, type TurnRec } from './types.ts'
 
 export type BeginArgs = {
   id: string
@@ -95,6 +95,19 @@ export class Recorder {
     if (extra.snapshot) step.snapshot = extra.snapshot
     if (extra.test) step.test = extra.test
     this.emit(step)
+  }
+
+  // A restore applied as a step: `commit` has step `to`'s tree, `files` is how the work tree changed
+  // (from `from`). On a new branch the step grows from `to`, so its tree equals `to`'s and it changed
+  // nothing along the branch's path: the work-tree list is kept in its input, for display only, and the
+  // abandoned branch's files never reach causality. On the same branch the files are its changes.
+  restoreStep(a: { at: number; to: number; from: string; commit: string; files: readonly FileChange[]; branch?: string }): Step {
+    if (a.branch !== undefined) this.fork(a.branch, a.to, a.at)
+    const shown = a.files.slice(0, MAX_FILES)
+    const onBranch = a.branch !== undefined
+    const step = this.begin({ id: `restore-${a.at}`, tool: 'restore', kind: 'restore', input: { to: a.to, from: a.from, ...(onBranch ? { workTree: shown } : {}) }, target: `step ${a.to}`, at: a.at })
+    this.finish(step, a.at, { snapshot: { commit: a.commit, changed: a.files.length > 0, files: onBranch ? [] : shown, filesTotal: onBranch ? 0 : a.files.length, ms: 0 } })
+    return step
   }
 
   addModel(rec: ModelRec): void {

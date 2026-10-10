@@ -301,10 +301,7 @@ async function restore($: EngineInterface, c: Ctx, n: number, yes: boolean, bran
   const ref = name !== undefined ? `refs/tm/${c.rec.session.sessionId}/${name}` : refOf(c)
   const commit = await git.restore(target.snapshot.commit, ref, from, `restore to step ${n}${name !== undefined ? ` on branch ${name}` : ''}`, name !== undefined)
   c.head = commit
-  if (name !== undefined) c.rec.fork(name, n, Date.now())
-  const snapshot: SnapshotRef = { commit, changed: files.length > 0, files: files.slice(0, 200), filesTotal: files.length, ms: 0 }
-  const step = c.rec.begin({ id: `restore-${Date.now()}`, tool: 'restore', kind: 'restore', input: { to: n, from }, target: `step ${n}`, at: Date.now() })
-  c.rec.finish(step, Date.now(), { snapshot })
+  c.rec.restoreStep({ at: Date.now(), to: n, from, commit, files, ...(name !== undefined ? { branch: name } : {}) })
   await persist($, c)
   paint($, c)
   const list = files.slice(0, 20).map(f => `${f.status} ${f.path}`).join(', ')
