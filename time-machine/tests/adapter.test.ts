@@ -263,3 +263,12 @@ test('one failed snapshot skips that snapshot without turning snapshots off', as
   const text = String((await $.command.run({ command: 'tm', args: 'timeline' } as never)).text)
   expect(text).not.toContain('snapshots off')
 })
+
+test('/tm compare refuses a session id that is not one folder name', async ($, on) => {
+  await recordSome($, on, new Map())
+  for (const id of ['..', '../../x', '.', 'a$b']) {
+    const text = String((await $.command.run({ command: 'tm', args: `compare main session:${id}` } as never)).text)
+    expect(text).toContain('is not a session id')
+  }
+  expect(String((await $.command.run({ command: 'tm', args: 'compare main session:other-1' } as never)).text)).toBe('time-machine: no recorded session other-1')
+})

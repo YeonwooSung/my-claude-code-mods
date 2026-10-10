@@ -30,6 +30,9 @@ const LOAD_ID = Date.now().toString(36)
 const DAY = 86_400_000
 const TOO_SLOW_MS = 5_000
 const MAX_LIVE_INPUTS = 500
+// Raw inputs kept for /tm rerun stay under this in all; the oldest go first, and one larger is not kept.
+const MAX_LIVE_BYTES = 32 * 1024 * 1024
+const DIFF_LINES = 400
 // Snapshots turn off only after failing this many times in a row over at least this long: a stale lock
 // (cleared once it is old enough) or one slow moment skips a snapshot or two, not the rest of the session.
 const FAILS_BEFORE_OFF = 3
@@ -54,6 +57,7 @@ type Ctx = {
   // The external-change check in progress: parallel mutating calls wait for it before they run.
   checking?: Promise<Step | undefined>
   live: Map<number, Record<string, unknown>>
+  liveBytes: Map<number, number>
   rerunOf?: number
   ended?: boolean
 }
@@ -106,24 +110,42 @@ function paint($: EngineInterface, c: Ctx): void {
   }
 }
 
-async function startSession($: EngineInterface): Promise<Ctx> {
-  const sessionId = await $.session.id()
-  const root = await $.session.root()
-  const base = `${await storeDir($, currentOptions)}/${projectKey(root)}`
-  const dir = `${base}/sessions/${sessionId}`
-  let rec: Recorder | undefined
+// A session id as a folder name: one path segment, never `.` or `..`.
+const SESSION_ID = /^(?!\.\.?$)[A-Za-z0-9._-]{1,128}$/
+
+// A recorded session's timeline from its folder, or undefined when there is none to read.
+async function loadRecorder($: EngineInterface, dir: string): Promise<Recorder | undefined> {
   try {
     const entries = await $.fs.list(dir)
     const files = await Promise.all(
       entries.filter(e => e.kind === 'file' && e.name.endsWith('.jsonl')).map(async e => ({ name: e.name, text: String(await $.fs.read(`${dir}/${e.name}`)) })),
     )
-    rec = Recorder.fromRecords(parseChunks(files))
+    return Recorder.fromRecords(parseChunks(files))
   } catch {
-    // a new session
+    return undefined
   }
-  rec ??= new Recorder({ sessionId, root, startedAt: Date.now(), loadId: LOAD_ID })
+}
+
+async function startSession($: EngineInterface): Promise<Ctx> {
+  const sessionId = await $.session.id()
+  const root = await $.session.root()
+  const base = `${await storeDir($, currentOptions)}/${projectKey(root)}`
+  const dir = `${base}/sessions/${sessionId}`
+  const rec = (await loadRecorder($, dir)) ?? new Recorder({ sessionId, root, startedAt: Date.now(), loadId: LOAD_ID })
   starts += 1
-  const c: Ctx = { rec, root, base, dir, writer: new ChunkWriter(`${LOAD_ID}${String(starts).padStart(2, '0')}`), writing: Promise.resolve(), inflight: 0, snapMs: [], live: new Map() }
+  // Four digits: chunk names sort in start order through 9999 starts in one module load.
+  const c: Ctx = {
+    rec,
+    root,
+    base,
+    dir,
+    writer: new ChunkWriter(`${LOAD_ID}${String(starts).padStart(4, '0')}`),
+    writing: Promise.resolve(),
+    inflight: 0,
+    snapMs: [],
+    live: new Map(),
+    liveBytes: new Map(),
+  }
   const last = rec.lastSnapshot()
   if (last?.snapshot) c.head = last.snapshot.commit
   try {
@@ -198,6 +220,27 @@ async function ensureGit($: EngineInterface, c: Ctx): Promise<ShadowGit | undefi
   return c.off ? undefined : git
 }
 
+// A call's raw input, kept for /tm rerun within MAX_LIVE_INPUTS and MAX_LIVE_BYTES, oldest dropped first.
+function keepLive(c: Ctx, n: number, input: Record<string, unknown>): void {
+  let size: number
+  try {
+    size = JSON.stringify(input).length
+  } catch {
+    return
+  }
+  if (size > MAX_LIVE_BYTES) return
+  c.live.set(n, input)
+  c.liveBytes.set(n, size)
+  let total = 0
+  for (const v of c.liveBytes.values()) total += v
+  while (c.live.size > MAX_LIVE_INPUTS || total > MAX_LIVE_BYTES) {
+    const oldest = c.live.keys().next().value!
+    total -= c.liveBytes.get(oldest) ?? 0
+    c.live.delete(oldest)
+    c.liveBytes.delete(oldest)
+  }
+}
+
 // `own`: the caller's own call, when it is counted in flight.
 async function takeSnapshot($: EngineInterface, c: Ctx, label: string, own = 0): Promise<SnapshotRef | undefined> {
   const git = await ensureGit($, c)
@@ -253,19 +296,35 @@ async function prune($: EngineInterface, c: Ctx, git: ShadowGit): Promise<void> 
   if (Date.now() - last < DAY) return
   await $.store.set(key, Date.now())
   const days = Number(currentOptions.retentionDays ?? 14)
-  if (!(days > 0)) return
   const sessions = `${c.base}/sessions`
-  for (const entry of await $.fs.list(sessions).catch(() => [])) {
+  // retentionDays 0 keeps every session; leftovers below are still swept.
+  for (const entry of days > 0 ? await $.fs.list(sessions).catch(() => []) : []) {
     if (entry.kind !== 'dir' || entry.name === c.rec.session.sessionId) continue
     const target = `${sessions}/${entry.name}`
     try {
       const meta = JSON.parse(String(await $.fs.read(`${target}/meta.json`))) as { startedAt?: number }
       if (Date.now() - Number(meta.startedAt ?? Date.now()) < days * DAY || !isInside(target, sessions)) continue
       await runnerOf($)(['rm', '-rf', target])
+      if (SESSION_ID.test(entry.name)) await runnerOf($)(['rm', '-f', `${c.base}/index/${entry.name}`, `${c.base}/index/${entry.name}.lock`])
       await git.deleteRefs(`refs/tm/${entry.name}/`)
     } catch {
       // leave it for next time
     }
+  }
+  // Indexes whose session folder is gone (pruned before indexes were): the index is only that session's.
+  for (const entry of await $.fs.list(`${c.base}/index`).catch(() => [])) {
+    const id = entry.name.replace(/\.lock$/, '')
+    if (entry.kind !== 'file' || id === c.rec.session.sessionId || !SESSION_ID.test(id)) continue
+    if (await $.fs.exists(`${sessions}/${id}`).catch(() => true)) continue
+    await runnerOf($)(['rm', '-f', `${c.base}/index/${entry.name}`]).catch(() => undefined)
+  }
+  // Isolated reruns' copies a crash left behind: named `<load>-<step>-<base-36 time>`, removed after a day.
+  const tmpRoot = `${c.base}/tmp`
+  for (const entry of await $.fs.list(tmpRoot).catch(() => [])) {
+    const at = parseInt(/-([0-9a-z]+)(?:\.index)?$/.exec(entry.name)?.[1] ?? '', 36)
+    const target = `${tmpRoot}/${entry.name}`
+    if (!(Date.now() - at > DAY) || !isInside(target, tmpRoot)) continue
+    await runnerOf($)(['rm', '-rf', target]).catch(() => undefined)
   }
   await git.gc().catch(() => undefined)
 }
@@ -354,17 +413,9 @@ async function pathOf($: EngineInterface, c: Ctx, spec: string): Promise<{ steps
   let rec: Recorder | undefined = c.rec
   let branch = spec
   if (spec.startsWith('session:')) {
-    const [id, b] = spec.slice('session:'.length).split('/')
-    const dir = `${c.base}/sessions/${id}`
-    try {
-      const entries = await $.fs.list(dir)
-      const files = await Promise.all(
-        entries.filter(e => e.kind === 'file' && e.name.endsWith('.jsonl')).map(async e => ({ name: e.name, text: String(await $.fs.read(`${dir}/${e.name}`)) })),
-      )
-      rec = Recorder.fromRecords(parseChunks(files))
-    } catch {
-      rec = undefined
-    }
+    const [id = '', b] = spec.slice('session:'.length).split('/')
+    if (!SESSION_ID.test(id)) return `time-machine: '${id}' is not a session id`
+    rec = await loadRecorder($, `${c.base}/sessions/${id}`)
     if (!rec) return `time-machine: no recorded session ${id}`
     branch = b ?? 'main'
   }
@@ -459,10 +510,8 @@ async function runTm($: EngineInterface, c: Ctx, args: string): Promise<string> 
         to = c.head
       }
       if (from === undefined || to === undefined) return 'time-machine: no snapshot for that step'
-      const { stat, patch } = await git.diffText(from, to)
-      const lines = patch.split('\n')
-      const cut = lines.length > 400 ? [...lines.slice(0, 400), `… (${lines.length - 400} more lines)`] : lines
-      return [stat.trimEnd() || '(no difference)', '', ...cut].join('\n')
+      const { stat, patch, more } = await git.diffText(from, to, DIFF_LINES)
+      return [stat.trimEnd() || '(no difference)', '', patch, ...(more ? [`… (cut at ${DIFF_LINES} lines; the stat above lists every file)`] : [])].join('\n')
     }
     case 'why': {
       const w = why(c.rec.path(), num(rest[1]))
@@ -587,8 +636,7 @@ export const register: Register = (on, options) => {
         ...(c.rerunOf !== undefined ? { rerunOf: c.rerunOf } : {}),
       })
       c.rerunOf = undefined
-      c.live.set(step.n, callInput(raw))
-      if (c.live.size > MAX_LIVE_INPUTS) c.live.delete(c.live.keys().next().value!)
+      keepLive(c, step.n, callInput(raw))
     } catch {
       // recording never blocks the tool
     }

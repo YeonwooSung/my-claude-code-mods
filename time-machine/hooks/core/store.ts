@@ -1,8 +1,9 @@
 import { hash32 } from './hash.ts'
 import type { Rec } from './types.ts'
 
-// One timeline file stays under this; `$.fs.write` rewrites a file whole, so smaller chunks write less.
-export const CHUNK_BYTES = 1024 * 1024
+// One timeline file stays under this. `$.fs.write` rewrites a file whole, so each record's write costs
+// up to a chunk: small chunks keep a long session's writes linear in its records.
+export const CHUNK_BYTES = 256 * 1024
 
 // `<last path segment>-<8 hex of the whole path>`: readable, and distinct for same-named folders.
 export function projectKey(root: string): string {

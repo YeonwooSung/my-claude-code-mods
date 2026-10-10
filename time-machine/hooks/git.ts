@@ -115,24 +115,32 @@ export class ShadowGit {
 
   // The raw result, a nonzero exit included.
   exec(args: readonly string[], opts: GitOptions = {}): Promise<RunResult> {
+    const { argv, options } = this.invocation(args, opts)
+    return (opts.runner ?? this.runner)(argv, options)
+  }
+
+  private invocation(args: readonly string[], opts: GitOptions): { argv: string[]; options: RunOptions } {
     const workTree = opts.workTree ?? this.workTree
     const argv = ['git', `--git-dir=${this.gitDir}`, `--work-tree=${workTree}`, '-c', 'core.quotepath=off', ...args]
-    return (opts.runner ?? this.runner)(argv, {
-      cwd: workTree,
-      env: {
-        ...IDENTITY,
-        GIT_DIR: this.gitDir,
-        GIT_WORK_TREE: workTree,
-        GIT_COMMON_DIR: this.gitDir,
-        GIT_OBJECT_DIRECTORY: `${this.gitDir}/objects`,
-        GIT_ALTERNATE_OBJECT_DIRECTORIES: '',
-        GIT_NAMESPACE: '',
-        // Empty clears `-c` settings inherited from a parent git; empty GIT_COMMON_DIR would break git.
-        GIT_CONFIG_PARAMETERS: '',
-        GIT_INDEX_FILE: opts.index ?? this.indexFile,
+    return {
+      argv,
+      options: {
+        cwd: workTree,
+        env: {
+          ...IDENTITY,
+          GIT_DIR: this.gitDir,
+          GIT_WORK_TREE: workTree,
+          GIT_COMMON_DIR: this.gitDir,
+          GIT_OBJECT_DIRECTORY: `${this.gitDir}/objects`,
+          GIT_ALTERNATE_OBJECT_DIRECTORIES: '',
+          GIT_NAMESPACE: '',
+          // Empty clears `-c` settings inherited from a parent git; empty GIT_COMMON_DIR would break git.
+          GIT_CONFIG_PARAMETERS: '',
+          GIT_INDEX_FILE: opts.index ?? this.indexFile,
+        },
+        timeoutMs: opts.timeoutMs ?? TIMEOUT_MS,
       },
-      timeoutMs: opts.timeoutMs ?? TIMEOUT_MS,
-    })
+    }
   }
 
   // Idempotent: re-running init on an existing repository leaves it as it is.
@@ -204,8 +212,22 @@ export class ShadowGit {
     return this.serial(async runner => parseNameStatus(await this.git(['diff', '--name-status', '-M', a, b], { runner })))
   }
 
-  diffText(a: string, b: string): Promise<{ stat: string; patch: string }> {
-    return this.serial(async runner => ({ stat: await this.git(['diff', '--stat', a, b], { runner }), patch: await this.git(['diff', a, b], { runner }) }))
+  // The patch's first `maxLines` lines and whether there were more: `head` ends git early, so a huge
+  // diff (a lockfile, a generated bundle) is neither read whole nor left to run into the timeout.
+  diffText(a: string, b: string, maxLines = Number.POSITIVE_INFINITY): Promise<{ stat: string; patch: string; more: boolean }> {
+    return this.serial(async runner => {
+      const stat = await this.git(['diff', '--stat', a, b], { runner })
+      if (!Number.isFinite(maxLines)) return { stat, patch: await this.git(['diff', a, b], { runner }), more: false }
+      const { argv, options } = this.invocation(['diff', a, b], {})
+      const r = await runner(['sh', '-c', 'set -o pipefail 2>/dev/null; "$@" | head -n "$TM_LINES"; s=$?; [ "$s" -eq 141 ] && s=0; exit $s', 'tm-diff', ...argv], {
+        ...options,
+        env: { ...options.env, TM_LINES: String(maxLines + 1) },
+      })
+      if (r.exitCode !== 0) throw new GitError(['diff', a, b], r)
+      const lines = r.stdout.replace(/\n$/, '').split('\n')
+      const more = lines.length > maxLines
+      return { stat, patch: (more ? lines.slice(0, maxLines) : lines).join('\n'), more }
+    })
   }
 
   // The work tree made to match `target`: tracked files rewritten, files `target` lacks removed, ignored

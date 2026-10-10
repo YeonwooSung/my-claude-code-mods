@@ -339,3 +339,19 @@ test('a snapshot blocked by a stale lock removes it and tries once more; a fresh
   }
   expect(other.calls.some(c => c.argv[0] === 'find')).toBe(false)
 })
+
+test('diffText stops reading the patch after the lines it shows', async () => {
+  const f = fake((sub, args) => {
+    if (sub === 'diff') return { stdout: args.includes('--stat') ? ' a | 1 +\n' : 'l1\nl2\nl3\n' }
+    return undefined
+  })
+  const r = await G(f).diffText('c1', 'c2', 2)
+  expect(r).toEqual({ stat: ' a | 1 +\n', patch: 'l1\nl2', more: true })
+  const piped = f.calls.find(c => c.argv.includes('tm-diff'))!
+  expect(piped.argv[0]).toBe('sh')
+  expect(piped.argv.slice(-3)).toEqual(['diff', 'c1', 'c2'])
+  expect(piped.env!.TM_LINES).toBe('3')
+  expect(piped.env!.GIT_INDEX_FILE).toBe('/s/index/s1')
+  const short = fake((sub, args) => (sub === 'diff' && !args.includes('--stat') ? { stdout: 'l1\n' } : undefined))
+  expect((await G(short).diffText('c1', 'c2', 2)).more).toBe(false)
+})
