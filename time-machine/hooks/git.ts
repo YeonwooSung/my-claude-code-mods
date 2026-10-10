@@ -10,6 +10,7 @@ export type SnapResult = { commit: string; changed: boolean; files: FileChange[]
 type GitOptions = { index?: string; workTree?: string; timeoutMs?: number; runner?: Runner }
 
 const TIMEOUT_MS = 30_000
+const STALE_LOCK_MS = 120_000
 const IDENTITY = {
   GIT_AUTHOR_NAME: 'time-machine',
   GIT_AUTHOR_EMAIL: 'tm@local',
@@ -62,6 +63,18 @@ export function ignoredConflicts(ignored: readonly string[], target: readonly st
   for (const t of tgt) for (const p of [t, ...dirsOf(t)]) if (ign.has(p)) out.add(p)
   for (const i of ign) if (dirsOf(i).some(d => tgt.has(d))) out.add(i)
   return [...out].sort()
+}
+
+// Wholly ignored directories (`dir/`) that only hold a target path, without being one: whether they
+// conflict depends on the ignored files inside them, so they are listed file by file before judging.
+// A leftover `pkg/__pycache__/` beside a restored `pkg/a.py` is not a conflict.
+export function ignoredDirsToExpand(ignored: readonly string[], target: readonly string[]): string[] {
+  const tgt = new Set(target.filter(p => p !== ''))
+  return ignored.filter(p => {
+    if (!p.endsWith('/')) return false
+    const dir = p.replace(/\/+$/, '')
+    return dir !== '' && !tgt.has(dir) && [...tgt].some(t => t.startsWith(`${dir}/`))
+  })
 }
 
 const MAX_NAMED = 10
@@ -142,23 +155,44 @@ export class ShadowGit {
   // does not exist yet (undefined for the baseline).
   snapshot(parent: string | undefined, message: string, ref: string): Promise<SnapResult> {
     return this.serial(async runner => {
-      const at = await this.exec(['rev-parse', '--verify', '-q', ref], { runner })
-      const base = at.exitCode === 0 && at.stdout.trim() !== '' ? at.stdout.trim() : parent
-      await this.git(['add', '-A'], { runner })
-      const tree = (await this.git(['write-tree'], { runner })).trim()
-      if (base !== undefined) {
-        const baseTree = (await this.git(['rev-parse', `${base}^{tree}`], { runner })).trim()
-        if (baseTree === tree) return { commit: base, changed: false, files: [], filesTotal: 0 }
+      try {
+        return await this.snapshotNow(parent, message, ref, runner)
+      } catch (error) {
+        if (!(await this.clearStaleLock(error, runner))) throw error
+        return this.snapshotNow(parent, message, ref, runner)
       }
-      const commit = (await this.git(['commit-tree', tree, ...(base !== undefined ? ['-p', base] : []), '-m', message], { runner })).trim()
-      await this.git(['update-ref', ref, commit], { runner })
-      if (base === undefined) {
-        const listed = (await this.git(['ls-tree', '-r', '--name-only', commit], { runner })).split('\n').filter(l => l !== '')
-        return { commit, changed: true, files: [], filesTotal: listed.length }
-      }
-      const files = parseNameStatus(await this.git(['diff', '--name-status', '-M', base, commit], { runner }))
-      return { commit, changed: true, files: files.slice(0, MAX_FILES), filesTotal: files.length }
     })
+  }
+
+  // A lock git left behind (a git killed by its timeout, a crashed process) blocks every later
+  // snapshot. Removed only when it is this repository's or this session's index's, and older than
+  // any live git would hold it: every call here times out well within STALE_LOCK_MS.
+  private async clearStaleLock(error: unknown, runner: Runner): Promise<boolean> {
+    if (!(error instanceof GitError)) return false
+    const lock = /Unable to create '([^']+\.lock)': File exists/.exec(error.result.stderr)?.[1]
+    if (lock === undefined || !(lock === `${this.indexFile}.lock` || isInside(lock, this.gitDir))) return false
+    const mins = String(Math.ceil(STALE_LOCK_MS / 60_000))
+    const r = await runner(['find', lock, '-maxdepth', '0', '-type', 'f', '-mmin', `+${mins}`, '-delete', '-print'], { timeoutMs: TIMEOUT_MS })
+    return r.exitCode === 0 && r.stdout.trim() !== ''
+  }
+
+  private async snapshotNow(parent: string | undefined, message: string, ref: string, runner: Runner): Promise<SnapResult> {
+    const at = await this.exec(['rev-parse', '--verify', '-q', ref], { runner })
+    const base = at.exitCode === 0 && at.stdout.trim() !== '' ? at.stdout.trim() : parent
+    await this.git(['add', '-A'], { runner })
+    const tree = (await this.git(['write-tree'], { runner })).trim()
+    if (base !== undefined) {
+      const baseTree = (await this.git(['rev-parse', `${base}^{tree}`], { runner })).trim()
+      if (baseTree === tree) return { commit: base, changed: false, files: [], filesTotal: 0 }
+    }
+    const commit = (await this.git(['commit-tree', tree, ...(base !== undefined ? ['-p', base] : []), '-m', message], { runner })).trim()
+    await this.git(['update-ref', ref, commit], { runner })
+    if (base === undefined) {
+      const listed = (await this.git(['ls-tree', '-r', '--name-only', commit], { runner })).split('\n').filter(l => l !== '')
+      return { commit, changed: true, files: [], filesTotal: listed.length }
+    }
+    const files = parseNameStatus(await this.git(['diff', '--name-status', '-M', base, commit], { runner }))
+    return { commit, changed: true, files: files.slice(0, MAX_FILES), filesTotal: files.length }
   }
 
   nameStatus(a: string, b: string): Promise<FileChange[]> {
@@ -185,8 +219,16 @@ export class ShadowGit {
       const fromTree = (await this.git(['rev-parse', `${from}^{tree}`], { runner })).trim()
       if (tree !== fromTree) throw new Error('the work tree changed since the last snapshot; run the restore again')
       const nul = (out: string): string[] => out.split('\0').filter(p => p !== '')
-      const ignored = nul(await this.git(['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'], { runner }))
-      const conflicts = ignoredConflicts(ignored, nul(await this.git(['ls-tree', '-r', '-z', '--name-only', target], { runner })))
+      const listIgnored = async (more: string[]): Promise<string[]> =>
+        nul(await this.git(['ls-files', '-z', '--others', '--ignored', '--exclude-standard', ...more], { runner }))
+      let ignored = await listIgnored(['--directory'])
+      const targetPaths = nul(await this.git(['ls-tree', '-r', '-z', '--name-only', target], { runner }))
+      const expand = ignoredDirsToExpand(ignored, targetPaths)
+      if (expand.length > 0) {
+        const drop = new Set(expand)
+        ignored = [...ignored.filter(p => !drop.has(p)), ...(await listIgnored(['--', ...expand]))]
+      }
+      const conflicts = ignoredConflicts(ignored, targetPaths)
       if (conflicts.length > 0) {
         const more = conflicts.length > MAX_NAMED ? ` (and ${conflicts.length - MAX_NAMED} more)` : ''
         throw new Error(`restore would overwrite ignored files that no snapshot holds: ${conflicts.slice(0, MAX_NAMED).join(', ')}${more}; move them aside and run the restore again`)

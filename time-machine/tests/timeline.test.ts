@@ -35,16 +35,34 @@ test('steps are numbered from 1 after the baseline, each parented to the one bef
   expect(r.path().map(s => s.n)).toEqual([0, 1, 2, 3, 4])
 })
 
-test('drain hands each record out once, steps only when finished', () => {
+test('drain hands each record out once: a step when begun and again when finished, once if both came between drains', () => {
   const r = new Recorder(session)
   expect(r.drain().map(x => x.type)).toEqual(['session'])
   const step = r.begin({ id: 'x', tool: 'Read', at: 1 })
-  expect(r.drain()).toEqual([])
+  const begun = r.drain()
+  expect(begun.length).toBe(1)
+  expect(begun[0]).toMatchObject({ type: 'step', n: 1 })
+  expect((begun[0] as { endedAt?: number }).endedAt).toBeUndefined()
   r.finish(step, 2, { result: { isError: false, denied: false, chars: 1, hash: 'h', head: 'x' } })
   const out = r.drain()
   expect(out.length).toBe(1)
   expect(out[0]).toMatchObject({ type: 'step', n: 1, endedAt: 2 })
   expect(r.drain()).toEqual([])
+  r.finish(r.begin({ id: 'y', tool: 'Read', at: 3 }), 4)
+  const both = r.drain()
+  expect(both.length).toBe(1)
+  expect(both[0]).toMatchObject({ type: 'step', n: 2, endedAt: 4 })
+})
+
+test('a reload while a step is still running keeps the path through it', () => {
+  const r = new Recorder(session)
+  r.baseline(1)
+  r.finish(r.begin({ id: 'a', tool: 'Read', at: 2 }), 3)
+  r.begin({ id: 'slow', tool: 'Bash', at: 4 })
+  r.finish(r.begin({ id: 'b', tool: 'Edit', at: 5 }), 6)
+  const back = Recorder.fromRecords(r.drain())!
+  expect(back.path().map(s => s.n)).toEqual([0, 1, 2, 3])
+  expect(back.get(2)!.endedAt).toBeUndefined()
 })
 
 test('snapshotAt walks back along the ancestry to the nearest snapshot', () => {

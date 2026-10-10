@@ -6,7 +6,7 @@ import { branchTaken } from '../hooks/core/timeline.ts'
 const PYTEST_FAIL = `FAILED tests/test_auth.py::test_login - AssertionError\ntests/test_auth.py:12: AssertionError\n========================= 1 failed, 4 passed in 0.10s =========================`
 
 // The runner's `$` has no `process`, so git is unavailable here: these tests run the "snapshots off" path.
-function world(on: On, writes: Map<string, string>): void {
+function world(on: On, writes: Map<string, string>, toolAnswer?: (e: { tool: string; tool_use_id?: string }) => unknown): void {
   mock.env(on, { HOME: '/Users/u' })
   mock.store(on)
   on('session.id', () => ({ value: 'sess-1' }))
@@ -20,6 +20,7 @@ function world(on: On, writes: Map<string, string>): void {
   on('command.register', (_$, e) => ({ value: { command: e.name } }) as never)
   on('session.start', () => ({ cwd: '/r' }))
   on('tool.call', (_$, e) => {
+    if (toolAnswer) return toolAnswer(e as never) as never
     if (e.tool === 'Bash') return { result: {}, isError: true, text: PYTEST_FAIL } as never
     if (e.tool === 'Write') return { deny: 'not allowed' } as never
     if (e.tool === 'WebSearch') throw new Error('boom')
@@ -113,6 +114,7 @@ test('/tm restore --yes runs only from an origin a person typed', async ($, on) 
   expect(await run('restore 1 --yes', 'channel')).toBe('time-machine: restore changes files or runs commands and only runs when you type it (this came from channel)')
   expect(await run('rerun 2 --write', 'scheduled-trigger')).toContain('rerun changes files or runs commands and only runs when you type it (this came from scheduled-trigger)')
   expect(await run('rerun 2 --isolated --yes', 'channel')).toContain('rerun changes files or runs commands and only runs when you type it (this came from channel)')
+  expect(await run('rerun 1', 'peer-send-message')).toBe('time-machine: rerun changes files or runs commands and only runs when you type it (this came from peer-send-message)')
   expect(await run('restore 1', 'channel')).toContain('snapshots are off')
   expect(await run('restore 1 --yes', 'composer')).toContain('snapshots are off')
 })
@@ -189,4 +191,75 @@ test('parallel mutating calls check for external changes once, before the first 
   const text = String((await $.command.run({ command: 'tm', args: 'timeline' } as never)).text)
   expect(text).not.toContain('snapshots off')
   expect(text.split('\n').filter(l => l.includes('external change')).length).toBe(1)
+})
+
+test('/tm rerun of a subagent, skill or message step needs --write, as it can change files once run again', async ($, on) => {
+  world(on, new Map())
+  await $.session.start({ cwd: '/r', surface: null, isInteractive: false } as never)
+  await $.tool.call({ tool: 'Agent', description: 'fix', prompt: 'fix the tests', tool_use_id: 'a1' } as never)
+  const text = String((await $.command.run({ command: 'tm', args: 'rerun 1', origin: { kind: 'composer' } } as never)).text)
+  expect(text).toBe('time-machine: step 1 (Agent) can change files; add --write to run it again here (a snapshot is taken after it)')
+})
+
+test("a parallel mutating call waits for the external check in progress, so its writes are not counted in it", async ($, on) => {
+  const log: string[] = []
+  world(on, new Map(), e => {
+    log.push(`tool ${String(e.tool_use_id)}`)
+    return { result: {}, text: 'ok' }
+  })
+  let k = 0
+  on('process.run', async (_$, e) => {
+    const args = e.argv.slice(e.argv.indexOf('core.quotepath=off') + 1)
+    const sub = args[0] === 'rev-parse' && args[1] === '--verify' ? 'verify' : args[0]
+    k += 1
+    if (sub === 'add') {
+      log.push('add')
+      for (let i = 0; i < 20; i += 1) await Promise.resolve()
+    }
+    const out =
+      sub === 'verify' ? { exitCode: 1, stdout: '' }
+      : sub === 'write-tree' ? { exitCode: 0, stdout: `tree${k}\n` }
+      : sub === 'rev-parse' ? { exitCode: 0, stdout: 'old\n' }
+      : sub === 'commit-tree' ? { exitCode: 0, stdout: `c${k}\n` }
+      : sub === 'diff' ? { exitCode: 0, stdout: 'M\tx.js\n' }
+      : { exitCode: 0, stdout: '' }
+    return { value: { ...out, stderr: '' } } as never
+  })
+  await $.session.start({ cwd: '/r', surface: null, isInteractive: false } as never)
+  await $.tool.call({ tool: 'Read', file_path: '/r/a.js', tool_use_id: 'r0' } as never)
+  log.length = 0
+  await Promise.all([
+    $.tool.call({ tool: 'Edit', file_path: '/r/a.js', old_string: 'a', new_string: 'b', tool_use_id: 'e1' } as never),
+    $.tool.call({ tool: 'Edit', file_path: '/r/b.js', old_string: 'a', new_string: 'b', tool_use_id: 'e2' } as never),
+  ])
+  // The baseline's and the check's `add` both come before either edit runs.
+  expect(log.slice(0, 2)).toEqual(['add', 'add'])
+  expect(log.slice(2, 4).sort()).toEqual(['tool e1', 'tool e2'])
+})
+
+test('one failed snapshot skips that snapshot without turning snapshots off', async ($, on) => {
+  world(on, new Map())
+  let k = 0
+  let failed = false
+  on('process.run', (_$, e) => {
+    const args = e.argv.slice(e.argv.indexOf('core.quotepath=off') + 1)
+    const sub = args[0] === 'rev-parse' && args[1] === '--verify' ? 'verify' : args[0]
+    k += 1
+    if (sub === 'write-tree' && k > 8 && !failed) {
+      failed = true
+      return { value: { exitCode: 128, stdout: '', stderr: 'fatal: timed out\n' } } as never
+    }
+    const out =
+      sub === 'verify' ? { exitCode: 1, stdout: '' }
+      : sub === 'write-tree' ? { exitCode: 0, stdout: `tree${k}\n` }
+      : sub === 'rev-parse' ? { exitCode: 0, stdout: 'old\n' }
+      : sub === 'commit-tree' ? { exitCode: 0, stdout: `c${k}\n` }
+      : { exitCode: 0, stdout: '' }
+    return { value: { ...out, stderr: '' } } as never
+  })
+  await $.session.start({ cwd: '/r', surface: null, isInteractive: false } as never)
+  for (const id of ['e1', 'e2', 'e3']) await $.tool.call({ tool: 'Edit', file_path: '/r/a.js', old_string: 'a', new_string: 'b', tool_use_id: id } as never)
+  expect(failed).toBe(true)
+  const text = String((await $.command.run({ command: 'tm', args: 'timeline' } as never)).text)
+  expect(text).not.toContain('snapshots off')
 })

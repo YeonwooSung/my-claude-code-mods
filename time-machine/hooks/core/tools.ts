@@ -9,6 +9,9 @@ export const READ_ONLY_TOOLS = new Set([
   'SendMessage', 'AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode', 'BashOutput', 'KillShell',
   'ListMcpResourcesTool', 'ReadMcpResourceTool', 'NotebookRead',
 ])
+// Not snapshotted (whatever they change arrives as steps of their own), but running one again acts:
+// a subagent or skill edits files and runs commands, a message reaches an agent, a shell is killed.
+export const ACTING_TOOLS = new Set(['Task', 'Agent', 'Skill', 'SendMessage', 'KillShell'])
 export const INPUT_STRING_MAX = 4096
 export const RESULT_HEAD_MAX = 2048
 const ENGINE_KEYS = new Set(['tool', 'tool_use_id', 'agentId', 'consent'])

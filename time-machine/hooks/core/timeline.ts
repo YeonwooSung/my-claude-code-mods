@@ -30,11 +30,16 @@ export class Recorder {
     this.out.push({ type: 'session', ...session })
   }
 
-  // Records not yet written out, oldest first; each is handed out once.
+  // Records not yet written out, oldest first; each is handed out once. A step begun and finished
+  // since the last drain goes out once, as finished.
   drain(): Rec[] {
     const out = this.out
     this.out = []
-    return out
+    const last = new Map<number, number>()
+    out.forEach((r, i) => {
+      if (r.type === 'step') last.set(r.n, i)
+    })
+    return out.filter((r, i) => r.type !== 'step' || last.get(r.n) === i)
   }
 
   get size(): number {
@@ -86,10 +91,13 @@ export class Recorder {
     if (a.target !== undefined) step.target = a.target
     if (a.rerunOf !== undefined) step.rerunOf = a.rerunOf
     this.put(step)
+    // Written out now, not only when finished: a later step may name it as its parent, and a reload
+    // before it finishes would otherwise cut that step's path short.
+    this.emit(step)
     return step
   }
 
-  // The step is complete: written out once, with whatever it gathered.
+  // The step is complete: written out again, with whatever it gathered.
   finish(step: Step, at: number, extra: { result?: StepResult; snapshot?: SnapshotRef; test?: TestRun } = {}): void {
     step.endedAt = at
     if (extra.result) step.result = extra.result

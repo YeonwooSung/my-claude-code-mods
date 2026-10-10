@@ -20,7 +20,7 @@ import {
 import { ChunkWriter, parseChunks, projectKey } from './core/store.ts'
 import { parseTestOutput } from './core/testparse.ts'
 import { branchTaken, Recorder } from './core/timeline.ts'
-import { callInput, isMutating, resultText, summarizeInput, summarizeResult, targetOf } from './core/tools.ts'
+import { ACTING_TOOLS, callInput, isMutating, resultText, summarizeInput, summarizeResult, targetOf } from './core/tools.ts'
 import type { SnapshotRef, Step } from './core/types.ts'
 import { isInside, ShadowGit, type Runner } from './git.ts'
 
@@ -30,6 +30,10 @@ const LOAD_ID = Date.now().toString(36)
 const DAY = 86_400_000
 const TOO_SLOW_MS = 5_000
 const MAX_LIVE_INPUTS = 500
+// Snapshots turn off only after failing this many times in a row over at least this long: a stale lock
+// (cleared once it is old enough) or one slow moment skips a snapshot or two, not the rest of the session.
+const FAILS_BEFORE_OFF = 3
+const FAILING_MS_BEFORE_OFF = 180_000
 const USAGE =
   'usage: /tm [timeline [--all] [--branch b] | show <n> | diff <a> [b] | why [n] | restore <n> [--yes] | branch <n> [name] [--yes] | compare <a> <b> | rerun <n> [--write] [--isolated [--yes]] | sessions]'
 
@@ -46,6 +50,9 @@ type Ctx = {
   writing: Promise<void>
   inflight: number
   snapMs: number[]
+  failing?: { count: number; since: number; error: string }
+  // The external-change check in progress: parallel mutating calls wait for it before they run.
+  checking?: Promise<Step | undefined>
   live: Map<number, Record<string, unknown>>
   rerunOf?: number
   ended?: boolean
@@ -201,25 +208,43 @@ async function takeSnapshot($: EngineInterface, c: Ctx, label: string, own = 0):
     const s = await git.snapshot(c.head, label, refOf(c))
     const ms = Date.now() - t0
     c.head = s.commit
+    c.failing = undefined
     c.snapMs.push(ms)
     if (c.snapMs.length > 1_000) c.snapMs.shift()
     return { ...s, ms, ...(concurrent ? { concurrent: true } : {}) }
   } catch (error) {
-    c.off = `snapshot failed: ${message(error)}`
+    const now = Date.now()
+    const f = (c.failing ??= { count: 0, since: now, error: '' })
+    f.count += 1
+    f.error = message(error)
+    if (f.count >= FAILS_BEFORE_OFF && now - f.since >= FAILING_MS_BEFORE_OFF) c.off = `snapshot failed ${f.count} times in a row: ${f.error}`
     return undefined
   }
 }
 
 // Changes made outside the agent since the last snapshot become an `external` step of their own.
-// Skipped while another mutating call is in flight: its changes are not external. `own` is 1 when the
+// Skipped while another mutating call is in flight: its changes are not external. A check already
+// running is waited for instead, so a parallel call's writes never land inside it. `own` is 1 when the
 // caller is a tool call already counted in flight.
 async function checkExternal($: EngineInterface, c: Ctx, own = 0): Promise<Step | undefined> {
+  if (c.checking) {
+    await c.checking.catch(() => undefined)
+    return undefined
+  }
   if (c.inflight > own) return undefined
-  const snap = await takeSnapshot($, c, 'external', own)
-  if (!snap?.changed) return undefined
-  const step = c.rec.begin({ id: `external-${Date.now()}`, tool: 'external', kind: 'external', at: Date.now() })
-  c.rec.finish(step, Date.now(), { snapshot: snap })
-  return step
+  const check = (async () => {
+    const snap = await takeSnapshot($, c, 'external', own)
+    if (!snap?.changed) return undefined
+    const step = c.rec.begin({ id: `external-${Date.now()}`, tool: 'external', kind: 'external', at: Date.now() })
+    c.rec.finish(step, Date.now(), { snapshot: snap })
+    return step
+  })()
+  c.checking = check
+  try {
+    return await check
+  } finally {
+    if (c.checking === check) c.checking = undefined
+  }
 }
 
 async function prune($: EngineInterface, c: Ctx, git: ShadowGit): Promise<void> {
@@ -271,13 +296,14 @@ async function settle($: EngineInterface, c: Ctx, step: Step | undefined, counte
 // Origins a person typed: the only ones allowed to change files or run commands through /tm.
 const TYPED = new Set(['composer', 'bridge', 'sdk'])
 
-// The subcommand, when `args` would change files or run commands (restore/branch --yes, rerun --write, rerun --isolated --yes).
+// The subcommand, when `args` would change files or run commands: restore/branch --yes, and every rerun
+// but an --isolated dry run (a "read-only" step may be a subagent that edits files once run again).
 function changesFiles(args: string): string | undefined {
   const words = args.trim().split(/\s+/).filter(w => w !== '')
   const sub = words.find(w => !w.startsWith('--'))
   const flags = new Set(words.filter(w => w.startsWith('--')))
   if ((sub === 'restore' || sub === 'branch') && flags.has('--yes')) return sub
-  if (sub === 'rerun' && (flags.has('--write') || (flags.has('--isolated') && flags.has('--yes')))) return sub
+  if (sub === 'rerun' && !(flags.has('--isolated') && !flags.has('--yes'))) return sub
   return undefined
 }
 
@@ -388,7 +414,7 @@ async function rerun($: EngineInterface, c: Ctx, n: number, write: boolean, isol
     }
     return out
   }
-  if (isMutating(step.tool, input, currentOptions.skipSearchBash === true) && !write)
+  if ((isMutating(step.tool, input, currentOptions.skipSearchBash === true) || ACTING_TOOLS.has(step.tool)) && !write)
     return `time-machine: step ${n} (${step.tool}) can change files; add --write to run it again here (a snapshot is taken after it)`
   c.rerunOf = n
   let answer: unknown

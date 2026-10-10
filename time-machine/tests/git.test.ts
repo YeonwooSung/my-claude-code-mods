@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { GitError, ignoredConflicts, isInside, parseNameStatus, ShadowGit, type RunResult, type Runner } from '../hooks/git.ts'
+import { GitError, ignoredConflicts, ignoredDirsToExpand, isInside, parseNameStatus, ShadowGit, type RunResult, type Runner } from '../hooks/git.ts'
 
 type Call = { argv: readonly string[]; env?: Record<string, string>; cwd?: string }
 
@@ -278,4 +278,62 @@ test('every git call overrides an inherited common dir and config parameters', a
     expect(c.env!.GIT_COMMON_DIR).toBe('/s/shadow.git')
     expect(c.env!.GIT_CONFIG_PARAMETERS).toBe('')
   }
+})
+
+test('a wholly ignored directory that only holds a target path is judged by the files inside it', async () => {
+  expect(ignoredDirsToExpand(['pkg/', 'out/', '.env', 'b/'], ['pkg/a.py', 'out', 'b'])).toEqual(['pkg/'])
+  const answer = (inside: string) => (sub: string, args: readonly string[]) =>
+    sub === 'write-tree' || sub === 'rev-parse'
+      ? { stdout: 't\n' }
+      : sub === 'ls-files'
+        ? { stdout: args.includes('--directory') ? 'pkg/\0' : inside }
+        : sub === 'ls-tree'
+          ? { stdout: 'pkg/a.py\0' }
+          : sub === 'commit-tree'
+            ? { stdout: 'c4\n' }
+            : undefined
+  const ok = fake(answer('pkg/__pycache__/a.pyc\0'))
+  expect(await G(ok).restore('c3', 'r', 'c2', 'm')).toBe('c4')
+  expect(ok.calls[5]!.argv.slice(-7)).toEqual(['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--', 'pkg/'])
+  const clash = fake(answer('pkg/a.py\0'))
+  let error: unknown
+  try {
+    await G(clash).restore('c3', 'r', 'c2', 'm')
+  } catch (e) {
+    error = e
+  }
+  expect(String((error as Error).message)).toContain('restore would overwrite ignored files that no snapshot holds: pkg/a.py;')
+  expect(clash.subs()).not.toContain('read-tree')
+})
+
+test('a snapshot blocked by a stale lock removes it and tries once more; a fresh lock fails the snapshot', async () => {
+  const locked = (removed: boolean) => {
+    let adds = 0
+    return fake((sub, args) => {
+      if (args.includes('-mmin')) return { stdout: removed ? '/s/index/s1.lock\n' : '' }
+      if (sub === 'add' && (adds += 1) === 1) return { exitCode: 128, stderr: "fatal: Unable to create '/s/index/s1.lock': File exists.\n" }
+      if (sub === 'write-tree') return { stdout: 't1\n' }
+      if (sub === 'commit-tree') return { stdout: 'c1\n' }
+      return undefined
+    })
+  }
+  const stale = locked(true)
+  expect((await G(stale).snapshot(undefined, 'b', 'refs/tm/s1/main')).commit).toBe('c1')
+  const find = stale.calls.find(c => c.argv[0] === 'find')!
+  expect(find.argv).toEqual(['find', '/s/index/s1.lock', '-maxdepth', '0', '-type', 'f', '-mmin', '+2', '-delete', '-print'])
+  const fresh = locked(false)
+  let error: unknown
+  try {
+    await G(fresh).snapshot(undefined, 'b', 'refs/tm/s1/main')
+  } catch (e) {
+    error = e
+  }
+  expect(error).toBeInstanceOf(GitError)
+  const other = fake(sub => (sub === 'add' ? { exitCode: 128, stderr: "fatal: Unable to create '/elsewhere/x.lock': File exists.\n" } : undefined))
+  try {
+    await G(other).snapshot(undefined, 'b', 'refs/tm/s1/main')
+  } catch {
+    // refused
+  }
+  expect(other.calls.some(c => c.argv[0] === 'find')).toBe(false)
 })
