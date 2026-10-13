@@ -9,6 +9,7 @@
 - [agent-profiler](agent-profiler/README.md): shows where a session's time goes (model wait, tools, subagents, re-reads) and exports OTLP traces for Jaeger/Tempo.
 - [context-inspector](context-inspector/README.md) ([한국어](context-inspector/README_KR.md)): analyzes context waste in Claude sessions, including what fills the window, re-reads, near-duplicate outputs, and what compaction kept, providing advice.
 - [time-machine](time-machine/README.md) ([한국어](time-machine/README_KR.md)): records every tool call on a branching timeline with shadow-git snapshots, so you can see the files as they were at any step, explain which edit broke a test, restore, branch, compare runs and re-run steps.
+- [loop-detective](loop-detective/README.md) ([한국어](loop-detective/README_KR.md)): detects repeated Bash failures and edit/retry cycles, with evidence, investigation prompts, a live case pane and bounded history.
 
 ## Development
 
@@ -26,7 +27,8 @@ npm run typecheck         # requires engine-generated declarations in each .clau
 | Validation target | Compatibility |
 |---|---|
 | Node core tests | Node 22.19.0; TypeScript transformation flag required |
-| All three engine test suites | Verified with Claude Code 2.1.292 |
+| Original three engine test suites | Verified with Claude Code 2.1.292 |
+| Loop Detective engine suite | Verified with Claude Code 2.1.280; TypeScript checks use local 2.1.292 declarations |
 | Early-access Claude Code 2.1.280 | Profiler works; Context Inspector lacks `session.append`, and Time Machine's per-test options are ignored |
 | Live terminal/desktop UI and simultaneous mods | Requires a separate interactive integration run; unit suites do not establish UI compatibility |
 

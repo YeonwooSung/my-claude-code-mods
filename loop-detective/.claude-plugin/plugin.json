@@ -1,0 +1,20 @@
+{
+  "name": "loop-detective",
+  "version": "0.1.0",
+  "description": "Detect repeated Bash failures and edit/retry cycles with evidence, live cases and investigation prompts",
+  "author": { "name": "YeonwooSung" },
+  "userConfig": {
+    "threshold": {
+      "type": "number",
+      "title": "Identical failure threshold",
+      "description": "Consecutive identical failures before opening a case (integer 3–10; invalid values use 3)",
+      "default": 3
+    },
+    "toastAlerts": {
+      "type": "boolean",
+      "title": "Notify when a case opens",
+      "description": "Show one toast when each repeated-failure case crosses the threshold",
+      "default": true
+    }
+  }
+}

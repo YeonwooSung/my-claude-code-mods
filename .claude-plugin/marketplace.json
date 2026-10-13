@@ -18,6 +18,11 @@
       "name": "time-machine",
       "source": "./time-machine",
       "description": "Agent Time Machine: a branching timeline of tool calls with shadow-git snapshots — inspect, diff, explain test failures, restore, branch, compare, re-run"
+    },
+    {
+      "name": "loop-detective",
+      "source": "./loop-detective",
+      "description": "Repeated-failure detective: evidence-backed Bash retry and edit/retry cases, live pane and investigation prompts"
     }
   ]
 }

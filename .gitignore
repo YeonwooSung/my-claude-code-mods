@@ -162,3 +162,6 @@ context-inspector/.claude-plugin/types/
 
 # time-machine: type declarations the engine (or the tsc gate) lays beside the mod
 time-machine/.claude-plugin/types/
+
+# loop-detective: engine-generated declarations
+loop-detective/.claude-plugin/types/
