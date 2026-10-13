@@ -19,7 +19,8 @@ Session #184
 ## 설치
 
 ```
-/plugin install time-machine --marketplace YeonwooSung/my-claude-code-mods
+/plugin marketplace add YeonwooSung/my-claude-code-mods
+/plugin install time-machine@my-claude-code-mods
 ```
 
 Claude Code 2.1.287 이상(mods 기본 활성화)과 `git`이 필요하다.
@@ -84,7 +85,7 @@ Claude Code 2.1.287 이상(mods 기본 활성화)과 `git`이 필요하다.
 ## 재실행 (`/tm rerun`)
 
 - 기본: 같은 입력으로 도구를 다시 부른다(권한 확인을 거친다). 읽기 전용 도구만 허용하며, 변경성 도구와 다시 실행하면 작업을 하는 도구(`Agent`/`Task`, `Skill`, `SendMessage`, `KillShell`)는 `--write`가 필요하다(변경성 도구는 실행 뒤 스냅샷, 서브에이전트 등은 그 안의 호출이 각자 step으로 기록). 어느 경우든 사용자가 직접 입력했을 때만 실행된다. 결과가 해시로 같으면 "identical", 다르면 줄 diff 요약, 테스트면 통과/실패 변화를 보인다.
-- `--isolated`(Bash만): 그 step 직전 스냅샷을 임시 디렉터리(`<storeDir>/<projectKey>/tmp/…`)에 풀어 거기서 실행한다. 무시 파일(의존성 등)이 없으므로 best effort이고, **권한 다이얼로그를 거치지 않는다.** 그래서 `--yes` 없이는 dry run이다: 실행할 명령(`$ …`), 쓸 스냅샷, 주의점만 보이고 아무것도 실행하지 않는다. `/tm rerun <n> --isolated --yes`도 사용자가 직접 입력했을 때만 실행되며, 명령이 프로젝트의 절대 경로를 담으면 격리되지 않으므로 거부한다. 실행 전후로 외부 변경을 검사해, 그래도 프로젝트가 바뀌면 `external` step으로 남긴다.
+- `--isolated`(Bash만, **스냅샷 복사본 실행이며 샌드박스가 아님**): 그 step 직전 스냅샷을 임시 디렉터리(`<storeDir>/<projectKey>/tmp/…`)에 풀어 거기서 실행한다. 무시 파일(의존성 등)이 없으므로 best effort이고, **권한 다이얼로그를 거치지 않는다.** 그래서 `--yes` 없이는 dry run이다: 실행할 명령(`$ …`), 쓸 스냅샷, 주의점만 보이고 아무것도 실행하지 않는다. `/tm rerun <n> --isolated --yes`도 사용자가 직접 입력했을 때만 실행되며, 명령이 프로젝트의 절대 경로를 담으면 격리되지 않으므로 거부한다. 실행 전후로 외부 변경을 검사해, 그래도 프로젝트가 바뀌면 `external` step으로 남긴다.
 - 저장된 입력이 잘렸거나 마스킹된 step은 이번 로드에서 기록한 원본 입력이 메모리에 있을 때만(최근 500 step, 합계 32 MiB 이내) 재실행할 수 있다. 다른 로드(리로드·재개)에서는 재실행할 수 없다.
 - 모델 응답은 재실행하지 않는다.
 
@@ -146,3 +147,7 @@ npx -y -p typescript@5 tsc -p time-machine --noEmit   # types를 time-machine/.c
 ```
 
 단위 테스트는 가짜 git 러너로 명령 순서·인자·환경·출력 파싱·오류 경로를 검증한다. 테스트 러너의 `$`에는 `process`가 없어 진짜 git은 E2E(`-p` stream-json, 한 프로세스)로 확인한다.
+
+테스트의 기준점·해결·개선 연결은 프레임워크, 전체 명령(대상과 옵션 포함), 실행 cwd, 에이전트가 같은 경우만 수행합니다. 식별자가 없는 이전 기록은 연결하지 않습니다. 명령은 따옴표 밖의 공백만 정규화한 뒤 해시로 저장하고 여러 줄 명령과 셸 확장이 포함된 명령은 그대로 구분합니다. 같은 세션의 미저장 기록은 메모리 레코더를 이어서 사용해 step 번호가 충돌하지 않게 합니다.
+
+저장 상태는 타임라인·pane·상태줄에 `recording`, `degraded`, `not persisted`로 표시됩니다. 실패한 파일 본문과 메타데이터는 clear/resume 이후에도 메모리에 보존해 후속 기록 이벤트와 세션 종료 때 재시도합니다. 저장 실패가 지속된 채 프로세스가 종료되면 미저장 기록은 소실됩니다. 비밀 키의 값 전체를 중첩 객체·배열에서도 마스킹하며, 마스킹된 디스크 입력은 lossy로 표시합니다. 스냅샷 파일 내용에는 이 마스킹이 적용되지 않습니다. `--isolated`는 환경변수·사용자 홈·네트워크·외부 서비스를 격리하지 않습니다.

@@ -72,7 +72,7 @@ function similarLines(sum: Summary, n: number): string[] {
 
 function compactionLines(sum: Summary, n: number): string[] {
   if (sum.compactions.length === 0) return ['Compactions', '  none yet']
-  const out = ['Compactions (entities still found in the summary and kept messages)']
+  const out = ['Compactions (string presence in summary/kept messages; not semantic retention)']
   const shown = sum.compactions.slice(-n)
   shown.forEach((c, i) => {
     const index = sum.compactions.length - shown.length + i + 1

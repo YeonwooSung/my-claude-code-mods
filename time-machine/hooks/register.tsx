@@ -471,7 +471,7 @@ async function rerun($: EngineInterface, c: Ctx, n: number, write: boolean, isol
       const r = await run(['sh', '-lc', command], { cwd: tmp, timeoutMs: 600_000 })
       const text = [r.stdout, r.stderr].filter(s => s !== '').join('\n')
       const now = step.test ? parseTestOutput(text, r.exitCode !== 0) : undefined
-      const where = `isolated, in a copy of ${circled(before.n)}'s snapshot; ignored files such as dependencies are not in the copy`
+      const where = `snapshot copy (not a sandbox) of ${circled(before.n)}'s snapshot; ignored files such as dependencies are not in the copy`
       out = [`$ ${command}`, renderRerun(step, compareOutputs(step.result, text, step.test, now), where)].join('\n')
     } finally {
       if (isInside(tmp, tmpRoot)) await run(['rm', '-rf', tmp, `${tmp}.index`]).catch(() => undefined)

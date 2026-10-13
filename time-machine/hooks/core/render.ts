@@ -180,7 +180,7 @@ export function renderIsolatedPlan(step: Step, command: string, before: Step | u
   const lines = [
     `$ ${command}`,
     `Dry run of ${circled(step.n)} ${label(step)}: nothing ran. With --yes this runs through \`sh -lc\` in ${copy}, without a permission prompt.`,
-    'Caveats: ignored files such as dependencies are not in the copy; the command still reaches any absolute path it names and your home directory; a change it makes to the project is recorded as an external step.',
+    'Snapshot copy only, not a sandbox: environment variables, your home directory, absolute paths and external services remain accessible. Ignored files such as dependencies are not in the copy; project changes are recorded as external steps.',
   ]
   lines.push(blocked !== undefined ? `It would not run now: ${blocked}` : `Run /tm rerun ${step.n} --isolated --yes to run it.`)
   return lines.join('\n')

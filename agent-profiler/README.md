@@ -39,7 +39,8 @@ TTFT and stream times are response-wait times observed at the client, not time t
 ## Install
 
 ```
-/plugin install agent-profiler --marketplace YeonwooSung/my-claude-code-mods
+/plugin marketplace add YeonwooSung/my-claude-code-mods
+/plugin install agent-profiler@my-claude-code-mods
 ```
 
 During development, load the folder directly:

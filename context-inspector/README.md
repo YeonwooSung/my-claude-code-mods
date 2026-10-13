@@ -8,7 +8,8 @@ It only observes: it never changes rows, tool calls or compaction.
 ## Install
 
 ```
-/plugin install context-inspector --marketplace YeonwooSung/my-claude-code-mods
+/plugin marketplace add YeonwooSung/my-claude-code-mods
+/plugin install context-inspector@my-claude-code-mods
 ```
 
 Requires Claude Code 2.1.287 or later (mods enabled by default). Older builds need `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`.
@@ -37,8 +38,8 @@ Per-token attention inside the model and exact occupancy are not visible from ou
 
 - **Occupants**: items still in the current window, by category (tool name, `attachment:<name>`, prompt/response) and by target (file, command).
 - **Re-reads**: classifies every read of a file after the first — `engine-deduped` (the engine replaced it with an "unchanged" notice), `restored` (the engine re-attached it after compaction), `different-range`, `after-edit`, `after-compaction`, `changed-externally`, `unchanged-live` (the earlier copy is still in the window = pure waste).
-- **Similar outputs**: same hash (exact) or 64-bit SimHash Hamming distance ≤ 3 (near). This is **lexical** similarity over word 3-shingles, not semantic (embedding) similarity. Numbers are folded to `#`, so test outputs that differ only in run time are grouped.
-- **Compactions**: extracts edited files, read files, errors and user identifiers from the pre-compaction conversation and checks whether they survive in the summary and the kept messages. Reports lost edited files and how much was re-read because of the compaction (reflow).
+- **Similar outputs**: same full-content hash (exact) or 64-bit SimHash Hamming distance ≤ 3 (near). This is **lexical** similarity over word 3-shingles, not semantic (embedding) similarity. Numbers are folded to `#`, so test outputs that differ only in run time are grouped. Comparisons and window waste are computed separately per context. Outputs longer than 262,144 characters or 20,000 normalized words participate in exact matching only; a partial sample cannot justify whole-output near-duplicate waste.
+- **Compactions**: extracts edited files, read files, errors and user identifiers from the pre-compaction conversation and checks string presence in the summary and the kept messages. Presence does not establish that the associated decisions or constraints survived. Reports lost edited files and how much was re-read because of the compaction (reflow).
 - **Efficiency**: lines changed (Edit/MultiEdit/Write/NotebookEdit) against measured input growth for each main turn. Turns that grew without edits are only marked as "exploration turns" (exploration is not a defect).
 - **Advice**: unchanged re-reads, whole reads of large files, long command output, repeated output, edited files lost by compaction, re-inflow after compaction, long subagent results, MCP servers never called, large memory files. Each piece of advice comes with its evidence and ≈savings.
 

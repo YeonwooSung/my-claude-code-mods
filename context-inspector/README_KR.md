@@ -8,7 +8,8 @@ Claude Code 세션에서 컨텍스트 창을 무엇이 채우는지, 같은 정�
 ## 설치
 
 ```
-/plugin install context-inspector --marketplace YeonwooSung/my-claude-code-mods
+/plugin marketplace add YeonwooSung/my-claude-code-mods
+/plugin install context-inspector@my-claude-code-mods
 ```
 
 Claude Code 2.1.287 이상(mods 기본 활성화). 그보다 오래된 빌드는 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`.
@@ -84,3 +85,5 @@ cp -R agent-profiler/.claude-plugin/types context-inspector/.claude-plugin/types
 npx -y -p typescript@5 tsc -p context-inspector --noEmit
 "$CLAUDE292" plugin validate context-inspector
 ```
+
+중복 출력은 전체 내용의 해시로 exact를 판정하며, 컨텍스트별로 비교·낭비를 집계합니다. 262,144자 또는 정규화 후 20,000단어를 넘는 출력은 exact 비교만 수행합니다. 컴팩션의 문자열 보존은 관련 결정이나 제약의 의미까지 보존되었다는 뜻이 아닙니다.

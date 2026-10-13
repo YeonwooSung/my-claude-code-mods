@@ -19,7 +19,8 @@ Session #184
 ## Install
 
 ```
-/plugin install time-machine --marketplace YeonwooSung/my-claude-code-mods
+/plugin marketplace add YeonwooSung/my-claude-code-mods
+/plugin install time-machine@my-claude-code-mods
 ```
 
 Requires Claude Code 2.1.287 or later (mods enabled by default) and `git`.
@@ -65,7 +66,7 @@ Status line: `tm ⑫ · 5 snaps · 41ms` (last step number, snapshot count, aver
 
 ## Causality (`/tm why`)
 
-- **Reference point**: the last *passing* test run before the failing run F on the same branch (or the baseline if there is none). Every file changed between the reference snapshot and F's snapshot gets a score.
+- **Reference point**: the last *passing* test run before the failing run F on the same branch with the same framework, normalized full command (including suite/options), invocation cwd and agent (or the baseline if there is none). Every file changed between the reference snapshot and F's snapshot gets a score.
 - **Scoring**: +100 if the failure output mentions the path, +60 if it mentions only the file name (basename), +50 if a failure location (file:line) points at it, 0–20 for recency (closer to F scores higher), and ×2 per step that changed the file, up to 10. The top 5 are shown with their evidence and the step numbers that changed them.
 - **fixed by**: if there is a first passing run P after F, the files and steps changed between F and P are shown. When the failure count drops (e.g. 3 failed → 1 failed) it is marked "improved".
 - This is **inference, not proof.** The ranking is only a clue.
@@ -84,7 +85,7 @@ Status line: `tm ⑫ · 5 snaps · 41ms` (last step number, snapshot count, aver
 ## Rerun (`/tm rerun`)
 
 - Default: calls the tool again with the same input (going through the permission check). Only read-only tools are allowed; mutating tools and tools that do work when run again (`Agent`/`Task`, `Skill`, `SendMessage`, `KillShell`) need `--write` (mutating tools are snapshotted afterwards; for subagents and the like, the calls inside are recorded as their own steps). Either way it runs only when the user typed it directly. If the results hash the same it reports "identical"; otherwise a line diff summary, and for tests the pass/fail change.
-- `--isolated` (Bash only): extracts the snapshot right before that step into a temp directory (`<storeDir>/<projectKey>/tmp/…`) and runs there. It is best effort, since ignored files (dependencies and so on) are missing, and it **does not go through the permission dialog.** So without `--yes` it is a dry run: it only shows the command to run (`$ …`), the snapshot it would use and caveats, and runs nothing. `/tm rerun <n> --isolated --yes` also runs only when the user typed it directly, and refuses commands that contain an absolute path into the project, since those are not isolated. External changes are checked before and after the run, and if the project changes anyway it is recorded as an `external` step.
+- `--isolated` (Bash only; **snapshot copy, not a sandbox**): extracts the snapshot right before that step into a temp directory (`<storeDir>/<projectKey>/tmp/…`) and runs there. It is best effort, since ignored files (dependencies and so on) are missing, and it **does not go through the permission dialog.** So without `--yes` it is a dry run: it only shows the command to run (`$ …`), the snapshot it would use and caveats, and runs nothing. `/tm rerun <n> --isolated --yes` also runs only when the user typed it directly, and refuses commands that contain an absolute path into the project, as a guard against obvious writes to the original tree. Environment variables, home configuration and external services remain accessible. External changes are checked before and after the run, and if the project changes anyway it is recorded as an `external` step.
 - Steps whose stored input was truncated or masked can be rerun only while the original input recorded in this load is still in memory (the last 500 steps, 32 MiB total). They cannot be rerun from another load (reload, resume).
 - Model responses are not rerun.
 
@@ -131,10 +132,14 @@ JSONL record kinds: `session`, `turn`, `step`, `model`, `branch`. A chunk rolls 
 - In large repositories every mutating tool pays the snapshot time (the average is on the status line).
 - A log file inside the project that keeps changing produces an `external change` step before every mutating tool.
 - Files changed later by a background Bash are attached to the next snapshot. Snapshot attribution for concurrent tool calls is approximate.
-- `--isolated` only changes the working directory. Commands that use absolute paths still touch the real tree.
+- `--isolated` only changes the working directory; it does not isolate the environment, home directory, network or external services. Commands can still touch the real tree indirectly.
 - Test output in formats the parser does not know uses only the exit status. Locations in the middle of very long test output (outside the first/last 128 KiB) are not used for causality.
 - Ignored files (build outputs, `node_modules`, `.env`) are not snapshotted or restored.
 - It does not replace Claude Code's built-in `/rewind`. Time Machine also catches files changed by Bash and adds the timeline, causality and comparison.
+
+Test run identity is a hash of the complete command (whitespace outside quotes is normalized for simple commands; commands with newlines or shell expansions are preserved) plus cwd. Earlier logs without an identity remain readable but are not linked as a baseline, fix or improvement. A same-command pass is still an inference, not proof of causation.
+
+Storage state appears in the timeline, pane and status line: `recording`, `degraded` (some timeline data was saved but a write failed), or `not persisted` (no timeline write has succeeded in this load). Failed file bodies, including metadata and rolled-over chunks, stay in memory across clear/resume and retry on subsequent recording events and session end. A same-session resume reuses the in-memory recorder so unsaved steps keep their numbers. A continuing failure followed by process termination still loses unsaved memory. Secret keys such as `password`, `authorization`, `api_key` and `access_token` mask their entire values recursively; masked/truncated disk inputs are marked lossy. This supplements string masking and does not sanitize snapshot file contents.
 
 ## Development
 
