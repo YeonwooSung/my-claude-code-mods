@@ -1,4 +1,28 @@
 import type { TestFailure, TestRun } from './types.ts'
+import { contentHash } from './hash.ts'
+
+export function testIdentity(command: string, cwd: string): NonNullable<TestRun['identity']> {
+  let normalized = ''
+  let quote = ''
+  // Multiline shell/heredoc whitespace can be data, so preserve it exactly.
+  if (command.includes('\n') || command.includes('$') || command.includes('`')) return { commandHash: contentHash(command), cwd }
+  const text = command.trim()
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!
+    if (ch === '\\' && quote !== "'") {
+      normalized += ch + (text[++i] ?? '')
+    } else if (quote) {
+      normalized += ch
+      if (ch === quote) quote = ''
+    } else if (ch === "'" || ch === '"') {
+      quote = ch
+      normalized += ch
+    } else if (ch === ' ' || ch === '\t') {
+      if (!normalized.endsWith(' ')) normalized += ' '
+    } else normalized += ch
+  }
+  return { commandHash: contentHash(normalized), cwd }
+}
 
 const MAX_FAILURES = 50
 const MAX_LOCATIONS = 100
@@ -119,7 +143,7 @@ function pathsOf(text: string): string[] {
 }
 
 // What a test command's output says: framework, counts, failing tests and where they point.
-export function parseTestOutput(text: string, isError: boolean): TestRun {
+export function parseTestOutput(text: string, isError: boolean, invocation?: { command: string; cwd: string }): TestRun {
   const found = parseCargo(text) ?? parsePytest(text) ?? parseJest(text) ?? parseGo(text) ?? parseNodeTest(text)
   const window = scanWindow(text)
   const locations = locationsOf(window)
@@ -130,6 +154,7 @@ export function parseTestOutput(text: string, isError: boolean): TestRun {
   }
   const run: TestRun = {
     framework: found?.framework ?? 'unknown',
+    ...(invocation ? { identity: testIdentity(invocation.command, invocation.cwd) } : {}),
     ok: !isError && (found?.failed ?? 0) === 0 && (found?.errors ?? 0) === 0,
     failures,
     locations,

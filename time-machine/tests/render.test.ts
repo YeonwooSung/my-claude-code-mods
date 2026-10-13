@@ -4,12 +4,13 @@ import { why } from '../hooks/core/causality.ts'
 import { compare, compareOutputs } from '../hooks/core/compare.ts'
 import { circled, renderCompare, renderRerun, renderRestorePlan, renderSessions, renderStep, renderTimeline, renderWhy, statusLine, testSummary } from '../hooks/core/render.ts'
 import { Recorder } from '../hooks/core/timeline.ts'
+import { testIdentity } from '../hooks/core/testparse.ts'
 import type { SnapshotRef, TestRun } from '../hooks/core/types.ts'
 
 const session = { sessionId: '8201ea2b-079a', root: '/r', startedAt: 1, loadId: 'L' }
 const snap = (commit: string, ...paths: string[]): SnapshotRef => ({ commit, changed: true, files: paths.map(path => ({ status: 'M', path })), filesTotal: paths.length, ms: 41 })
-const failed: TestRun = { framework: 'pytest', ok: false, failed: 3, passed: 12, failures: [{ name: 'tests/test_auth.py::test_login', file: 'tests/test_auth.py', line: 12 }], locations: [{ file: 'auth.py', line: 12 }], paths: ['auth.py'] }
-const passed: TestRun = { framework: 'pytest', ok: true, passed: 12, failures: [], locations: [], paths: [] }
+const failed: TestRun = { framework: 'pytest', identity: testIdentity('pytest', '/r'), ok: false, failed: 3, passed: 12, failures: [{ name: 'tests/test_auth.py::test_login', file: 'tests/test_auth.py', line: 12 }], locations: [{ file: 'auth.py', line: 12 }], paths: ['auth.py'] }
+const passed: TestRun = { framework: 'pytest', identity: testIdentity('pytest', '/r'), ok: true, passed: 12, failures: [], locations: [], paths: [] }
 
 function example(): Recorder {
   const r = new Recorder(session)
@@ -96,7 +97,7 @@ test('labels, failure names and fixed-by are bounded and honest', () => {
   r.finish(r.begin({ id: 'a', tool: 'Grep', target: 'x'.repeat(300), at: 2 }), 3)
   expect(renderStep(r.get(1)!).split('\n')[0]!.length).toBeLessThanOrEqual(90)
   const long = 'n'.repeat(10000)
-  const t: TestRun = { framework: 'pytest', ok: false, failed: 1, failures: [{ name: long }], locations: [], paths: [] }
+  const t: TestRun = { framework: 'pytest', identity: testIdentity('pytest', '/r'), ok: false, failed: 1, failures: [{ name: long }], locations: [], paths: [] }
   r.finish(r.begin({ id: 'b', tool: 'Bash', target: 'pytest', at: 4 }), 5, { test: t })
   expect(renderStep(r.get(2)!).length).toBeLessThan(900)
   r.finish(r.begin({ id: 'c', tool: 'Bash', target: 'pytest', at: 6 }), 7, { test: passed })

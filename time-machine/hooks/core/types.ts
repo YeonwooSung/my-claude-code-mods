@@ -19,6 +19,8 @@ export type TestFailure = { name: string; file?: string; line?: number }
 
 export type TestRun = {
   framework: string
+  // Missing in legacy logs or when the full invocation was not observed.
+  identity?: { commandHash: string; cwd: string }
   ok: boolean
   passed?: number
   failed?: number

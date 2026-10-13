@@ -1,6 +1,16 @@
 import { expect, test } from 'claude-code/testing'
 
-import { parseTestOutput, sameFile } from '../hooks/core/testparse.ts'
+import { parseTestOutput, sameFile, testIdentity } from '../hooks/core/testparse.ts'
+
+test('test identity folds horizontal whitespace outside quotes but preserves suite, quoted spaces and shell newlines', () => {
+  expect(testIdentity('  pytest   integration/  ', '/r')).toEqual(testIdentity('pytest integration/', '/r'))
+  expect(testIdentity('pytest "a  b"', '/r')).not.toEqual(testIdentity('pytest "a b"', '/r'))
+  expect(testIdentity('pytest "$(printf "suite  name")"', '/r')).not.toEqual(testIdentity('pytest "$(printf "suite name")"', '/r'))
+  expect(testIdentity('pytest\nunit/', '/r')).not.toEqual(testIdentity('pytest unit/', '/r'))
+  expect(testIdentity('pytest integration/', '/r')).not.toEqual(testIdentity('pytest unit/', '/r'))
+  const run = parseTestOutput('1 passed in 0.1s', false, { command: 'pytest', cwd: '/r' })
+  expect(run.identity).toEqual(testIdentity('pytest', '/r'))
+})
 
 const PYTEST = `============================= test session starts ==============================
 collected 15 items

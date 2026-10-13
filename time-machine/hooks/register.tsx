@@ -347,14 +347,16 @@ async function prune($: EngineInterface, c: Ctx, git: ShadowGit): Promise<void> 
 }
 
 // Finishes a begun step on every path: a recording error still ends it, with what it gathered.
-async function settle($: EngineInterface, c: Ctx, step: Step | undefined, counted: boolean, mutating: boolean, answer: unknown): Promise<void> {
+async function settle($: EngineInterface, c: Ctx, step: Step | undefined, counted: boolean, mutating: boolean, answer: unknown, cwd?: string): Promise<void> {
   if (counted) c.inflight = Math.max(0, c.inflight - 1)
   if (!step) return
   try {
     const result = summarizeResult(answer)
     const snapshot = mutating ? await takeSnapshot($, c, `step ${step.n} ${step.tool}`) : undefined
-    const command = String(c.live.get(step.n)?.command ?? step.input.command ?? '')
-    const test = step.tool === 'Bash' && classifyCommand(command) === 'test' ? parseTestOutput(resultText(answer), result.isError) : undefined
+    const liveInput = c.live.get(step.n)
+    const command = String(liveInput?.command ?? step.input.command ?? '')
+    const invocation = cwd !== undefined && (liveInput || !step.inputLossy) ? { command, cwd } : undefined
+    const test = step.tool === 'Bash' && classifyCommand(command) === 'test' ? parseTestOutput(resultText(answer), result.isError, invocation) : undefined
     c.rec.finish(step, Date.now(), { result, ...(snapshot ? { snapshot } : {}), ...(test ? { test } : {}) })
     await persist($, c)
     paint($, c)
@@ -607,9 +609,9 @@ export const register: Register = (on, options) => {
 
   on('session.end', async ($, e, next) => {
     const result = await next(e)
+    if (ctx) await persist($, ctx)
     if ((e.reason === 'clear' || e.reason === 'resume') && ctx) ctx.ended = true
     return result
-    if (ctx) await persist($, ctx)
   }).catch(($, e, next) => next(e))
 
   on('turn.start', async ($, e, next) => {
@@ -633,7 +635,9 @@ export const register: Register = (on, options) => {
     let step: Step | undefined
     let mutating = false
     let counted = false
+    let cwd: string | undefined
     try {
+      if (tool === 'Bash') cwd = await $.session.cwd().catch(() => undefined)
       mutating = isMutating(tool, raw, currentOptions.skipSearchBash === true)
       // Counted before the check, so a parallel call does not check (and blame this one's writes) too.
       if (mutating) {
@@ -660,10 +664,10 @@ export const register: Register = (on, options) => {
     }
     try {
       const answer = await next(e)
-      await settle($, c, step, counted, mutating, answer)
+      await settle($, c, step, counted, mutating, answer, cwd)
       return answer
     } catch (error) {
-      await settle($, c, step, counted, mutating, { isError: true, text: message(error) })
+      await settle($, c, step, counted, mutating, { isError: true, text: message(error) }, cwd)
       throw error
     }
   }).catch(($, e, next) => next(e))

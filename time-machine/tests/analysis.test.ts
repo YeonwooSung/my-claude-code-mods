@@ -4,12 +4,45 @@ import { changesBetween, why } from '../hooks/core/causality.ts'
 import { compare, compareOutputs, keyOf, lcsPairs } from '../hooks/core/compare.ts'
 import { contentHash } from '../hooks/core/hash.ts'
 import { Recorder } from '../hooks/core/timeline.ts'
+import { testIdentity } from '../hooks/core/testparse.ts'
 import type { SnapshotRef, TestRun } from '../hooks/core/types.ts'
 
 const session = { sessionId: 's1', root: '/r', startedAt: 1, loadId: 'L' }
 const snap = (commit: string, ...paths: string[]): SnapshotRef => ({ commit, changed: true, files: paths.map(path => ({ status: 'M', path })), filesTotal: paths.length, ms: 5 })
-const failing = (failed: number, paths: string[], locations: { file: string; line: number }[] = []): TestRun => ({ framework: 'pytest', ok: false, failed, passed: 12, failures: [{ name: 'tests/test_auth.py::test_login', file: 'tests/test_auth.py' }], locations, paths })
-const passing: TestRun = { framework: 'pytest', ok: true, passed: 15, failures: [], locations: [], paths: [] }
+const failing = (failed: number, paths: string[], locations: { file: string; line: number }[] = []): TestRun => ({ framework: 'pytest', identity: testIdentity('pytest', '/r'), ok: false, failed, passed: 12, failures: [{ name: 'tests/test_auth.py::test_login', file: 'tests/test_auth.py' }], locations, paths })
+const passing: TestRun = { framework: 'pytest', identity: testIdentity('pytest', '/r'), ok: true, passed: 15, failures: [], locations: [], paths: [] }
+
+test('why does not connect unrelated test commands as baseline, fix or improvement', () => {
+  const r = new Recorder(session)
+  r.baseline(1)
+  const add = (command: string, result: TestRun): void => {
+    r.finish(r.begin({ id: `t${r.size}`, tool: 'Bash', input: { command }, at: 2 }), 3, { test: { ...result, identity: testIdentity(command, '/r') } })
+  }
+  add('pytest tests/test_unrelated.py', passing)
+  add('pytest integration/', failing(3, []))
+  add('pytest tests/test_unrelated.py', passing)
+  add('pytest unit/', failing(1, []))
+  const w = why(r.path(), 2)!
+  expect(w.base!.n).toBe(0)
+  expect(w.fixedBy).toBeUndefined()
+  expect(w.improved).toBeUndefined()
+})
+
+test('why compares only the same framework, cwd and agent, and leaves legacy runs unlinked', () => {
+  const r = new Recorder(session)
+  r.baseline(1)
+  const add = (test: TestRun, agentId?: string): void => {
+    r.finish(r.begin({ id: `t${r.size}`, tool: 'Bash', at: 2, agentId }), 3, { test })
+  }
+  add(failing(3, []))
+  add({ ...passing, identity: testIdentity('pytest', '/other') })
+  add({ ...passing, framework: 'jest' })
+  add(passing, 'a1')
+  add({ ...passing, identity: undefined })
+  expect(why(r.path(), 1)!.fixedBy).toBeUndefined()
+  add(passing)
+  expect(why(r.path(), 1)!.fixedBy!.run.n).toBe(6)
+})
 
 // The spec's example: ① Read ② Grep ③ Edit auth.py ④ pytest ✗ ⑤ Edit middleware.py ⑥ pytest ✓
 function session184(): Recorder {

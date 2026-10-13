@@ -14,6 +14,12 @@ const MAX_SUSPECTS = 5
 const basename = (path: string): string => path.split('/').filter(Boolean).at(-1) ?? path
 const isRun = (step: Step): step is Step & { test: TestRun } => step.test !== undefined
 
+function comparable(a: Step & { test: TestRun }, b: Step & { test: TestRun }): boolean {
+  const x = a.test.identity
+  const y = b.test.identity
+  return x !== undefined && y !== undefined && a.agentId === b.agentId && a.test.framework === b.test.framework && x.cwd === y.cwd && x.commandHash === y.commandHash
+}
+
 // Files that snapshots after path[fromIdx] up to path[toIdx] changed, each with the steps that changed it.
 export function changesBetween(path: readonly Step[], fromIdx: number, toIdx: number): Map<string, number[]> {
   const out = new Map<string, number[]>()
@@ -66,13 +72,13 @@ export function why(path: readonly Step[], runN?: number): Why | undefined {
   const target = runN === undefined ? [...runs].reverse().find(r => !r.step.test.ok) : runs.find(r => r.step.n === runN)
   if (!target) return undefined
   const { step: run, i: runIdx } = target
-  const okBefore = [...runs].reverse().find(r => r.i < runIdx && r.step.test.ok)
+  const okBefore = [...runs].reverse().find(r => r.i < runIdx && r.step.test.ok && comparable(run, r.step))
   const baseIdx = okBefore ? okBefore.i : path[0]?.kind === 'baseline' ? 0 : -1
   const out: Why = { run, suspects: [] }
   const base = baseIdx >= 0 ? path[baseIdx] : undefined
   if (base) out.base = base
   if (!run.test.ok) out.suspects = rank(path, changesBetween(path, baseIdx, runIdx), run.test, baseIdx, runIdx)
-  const later = runs.filter(r => r.i > runIdx)
+  const later = runs.filter(r => r.i > runIdx && comparable(run, r.step))
   const fixed = later.find(r => r.step.test.ok)
   if (!run.test.ok && fixed) {
     const changes = changesBetween(path, runIdx, fixed.i)
