@@ -1,0 +1,6 @@
+{
+  "name": "pin-memo",
+  "version": "0.1.0",
+  "description": "Persistent pinned memos and clickable todo checkboxes above the Claude Code prompt",
+  "author": { "name": "YeonwooSung" }
+}

@@ -165,3 +165,6 @@ time-machine/.claude-plugin/types/
 
 # loop-detective: engine-generated declarations
 loop-detective/.claude-plugin/types/
+
+# pin-memo: local engine declarations
+pin-memo/.claude-plugin/types/
