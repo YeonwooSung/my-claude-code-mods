@@ -6,16 +6,17 @@ export type Case = {
   kind: 'retry' | 'edit-retry'; status: CaseStatus; count: number
   firstSeq: number; lastSeq: number; editRetries: number; files: string[]; excerpt: string
 }
-export type Snapshot = { active: Case[]; history: Case[]; groups: number; contexts: number; threshold: number }
+export type Snapshot = { active: Case[]; history: Case[]; groups: number; contexts: number; pending: number; queues: number; threshold: number }
 type Context = { alive: boolean; epoch: number; edits: { epoch: number; path: string }[] }
 type Group = {
-  key: string; context: Context; agent: string; isMain: boolean; cwd: string; command: string
-  queue: Ticket[]; touched: number; signature?: string; count: number; firstSeq: number
+  key: string; baseKey: string; context: Context; agent: string; isMain: boolean; cwd: string; command: string
+  touched: number; signature?: string; count: number; firstSeq: number
   previousEpoch: number; editRetries: number; files: string[]; case?: Case
 }
 export type Ticket = {
-  seq: number; epoch: number; context: Context; group?: Group; path?: string
-  completed: boolean; outcome?: Outcome
+  seq: number; epoch: number; context: Context; path?: string
+  completed: boolean; located: boolean; invalid?: boolean; outcome?: Outcome; groupKey?: string; cwd?: string
+  metadata?: { baseKey: string; queue: Ticket[]; agent: string; isMain: boolean; command: string }
 }
 const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
 const copy = (c: Case): Case => ({ ...c, files: [...c.files] })
@@ -25,6 +26,8 @@ export class Detector {
   private caseId = 0
   private readonly groups = new Map<string, Group>()
   private readonly contexts = new Map<string, Context>()
+  // Reserve order before asynchronous cwd lookup; different directories may share a short queue.
+  private readonly waiting = new Map<string, Ticket[]>()
   private readonly history: Case[] = []
   readonly threshold: number
 
@@ -47,12 +50,19 @@ export class Detector {
   private evict(group: Group): void {
     this.close(group, 'expired')
     this.groups.delete(group.key)
-    group.queue = []
+    for (const queue of this.waiting.values()) for (const t of queue) if (t.groupKey === group.key) t.invalid = true
   }
 
   begin(tool: string, input: Record<string, unknown>, agent?: string, cwd?: string): Ticket {
+    const ticket = this.reserve(tool, input, agent)
+    this.locate(ticket, cwd)
+    return ticket
+  }
+
+  reserve(tool: string, input: Record<string, unknown>, agent?: string): Ticket {
     this.seq++
     for (const group of this.groups.values()) if (this.seq - group.touched >= 200) this.evict(group)
+    for (const [key, queue] of this.waiting) if (this.seq - queue[0]!.seq >= 200) this.waiting.delete(key)
     const scope = agent === undefined ? '@main' : `agent:${hash(agent)}`
     let context = this.contexts.get(scope)
     if (!context) {
@@ -60,6 +70,7 @@ export class Detector {
         const [oldKey, old] = this.contexts.entries().next().value!
         old.alive = false
         for (const group of this.groups.values()) if (group.context === old) this.evict(group)
+        for (const [key, queue] of this.waiting) if (queue[0]!.context === old) this.waiting.delete(key)
         this.contexts.delete(oldKey)
       }
       context = { alive: true, epoch: 0, edits: [] }
@@ -69,28 +80,37 @@ export class Detector {
       this.contexts.delete(scope)
       this.contexts.set(scope, context)
     }
-    const ticket: Ticket = { seq: this.seq, epoch: context.epoch, context, completed: false }
+    const ticket: Ticket = { seq: this.seq, epoch: context.epoch, context, completed: false, located: false }
     if (EDIT_TOOLS.has(tool)) {
       const path = input.file_path ?? input.notebook_path
       if (typeof path === 'string') ticket.path = display(path)
     }
-    if (tool !== 'Bash' || !cwd || typeof input.command !== 'string' || input.command.length > 65_536) return ticket
-    const key = hash(JSON.stringify([agent ?? null, cwd, input.command]))
-    let group = this.groups.get(key)
-    if (group && group.queue.length >= 16) { this.evict(group); group = undefined }
-    if (!group) {
-      if (this.groups.size >= 512) this.evict(this.groups.values().next().value!)
-      group = {
-        key, context, agent: agent === undefined ? 'main' : display(agent), isMain: agent === undefined,
-        cwd: display(cwd), command: display(input.command), queue: [], touched: this.seq,
-        count: 0, firstSeq: this.seq, previousEpoch: context.epoch, editRetries: 0, files: [],
-      }
-      this.groups.set(key, group)
+    if (tool !== 'Bash' || typeof input.command !== 'string' || input.command.length > 65_536) return ticket
+    const baseKey = hash(JSON.stringify([scope, hash(input.command)]))
+    let queue = this.waiting.get(baseKey)
+    if (queue && queue.length >= 16) {
+      for (const g of this.groups.values()) if (g.baseKey === baseKey) this.evict(g)
+      this.waiting.delete(baseKey)
+      queue = undefined
     }
-    group.touched = this.seq
-    ticket.group = group
-    group.queue.push(ticket)
+    if (!queue) {
+      if (this.waiting.size >= 512) this.waiting.delete(this.waiting.keys().next().value!)
+      queue = []
+      this.waiting.set(baseKey, queue)
+    }
+    ticket.metadata = { baseKey, queue, agent: agent === undefined ? 'main' : display(agent), isMain: agent === undefined, command: display(input.command) }
+    queue.push(ticket)
     return ticket
+  }
+
+  locate(ticket: Ticket, cwd?: string): void {
+    if (ticket.located) return
+    ticket.located = true
+    if (!ticket.metadata || !cwd) return
+    ticket.cwd = display(cwd)
+    ticket.groupKey = hash(JSON.stringify([ticket.metadata.baseKey, hash(cwd)]))
+    const group = this.groups.get(ticket.groupKey)
+    if (group) group.touched = this.seq
   }
 
   finish(ticket: Ticket, answer: unknown): Case[] {
@@ -104,13 +124,31 @@ export class Detector {
         if (ctx.edits.length > 100) ctx.edits.shift()
       }
     }
-    const group = ticket.group
-    if (!group || this.groups.get(group.key) !== group) return []
+    const metadata = ticket.metadata
+    if (!metadata || this.waiting.get(metadata.baseKey) !== metadata.queue) return []
     ticket.outcome = classifyResult(answer)
-    group.touched = this.seq
     const opened: Case[] = []
-    while (group.queue[0]?.completed) {
-      const t = group.queue.shift()!
+    const queue = metadata.queue
+    while (queue[0]?.completed && queue[0].located) {
+      const t = queue.shift()!
+      if (t.invalid) continue
+      if (!t.groupKey) {
+        // Unknown location cannot justify carrying a previous failure streak through this call.
+        for (const g of this.groups.values()) if (g.baseKey === metadata.baseKey) this.close(g, 'unknown')
+        continue
+      }
+      let group = this.groups.get(t.groupKey)
+      if (!group) {
+        if (this.groups.size >= 512) this.evict(this.groups.values().next().value!)
+        const m = t.metadata!
+        group = {
+          key: t.groupKey, baseKey: m.baseKey, context: t.context, agent: m.agent, isMain: m.isMain,
+          command: m.command, cwd: t.cwd!, touched: this.seq, count: 0, firstSeq: t.seq,
+          previousEpoch: t.epoch, editRetries: 0, files: [],
+        }
+        this.groups.set(group.key, group)
+      }
+      group.touched = this.seq
       const outcome = t.outcome!
       if (outcome.kind !== 'failure') {
         this.close(group, outcome.kind === 'success' ? 'recovered' : 'unknown')
@@ -138,6 +176,7 @@ export class Detector {
       }
       if (fresh) opened.push(copy(group.case))
     }
+    if (!queue.length) this.waiting.delete(metadata.baseKey)
     return opened
   }
 
@@ -145,6 +184,7 @@ export class Detector {
     return {
       active: [...this.groups.values()].flatMap(g => g.case ? [copy(g.case)] : []),
       history: this.history.map(copy), groups: this.groups.size, contexts: this.contexts.size, threshold: this.threshold,
+      pending: [...this.waiting.values()].reduce((sum, q) => sum + q.length, 0), queues: this.waiting.size,
     }
   }
 }

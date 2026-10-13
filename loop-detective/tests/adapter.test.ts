@@ -5,8 +5,8 @@ const fail = { isError: true as const, result: { stdout: 'Error: expected 2', st
 const ok = { result: { stdout: 'ok', stderr: '' }, text: 'ok' }
 const clear = { reason: 'clear', sessionId: 'old', resume: { id: 'old' } } as never
 
-function environment(on: On, toasts?: string[], failUi = false) {
-  on('session.cwd', () => ({ value: '/repo' }))
+function environment(on: On, toasts?: string[], failUi = false, getCwd?: () => Promise<string>) {
+  on('session.cwd', async () => ({ value: getCwd ? await getCwd() : '/repo' }))
   on('ui.status', () => {
     if (failUi) throw new Error('UI unavailable')
     return { value: undefined }
@@ -31,6 +31,28 @@ test('repeated Bash failures are reported and answers are unchanged', async ($, 
   const answer = await $.command.run({ command: 'loop-report', args: '' } as never)
   expect(answer.text).toContain('3 identical failures')
   expect(answer.text).toContain('Error: expected 2')
+})
+
+test('delayed cwd metadata cannot reorder invocations', async ($, on) => {
+  let entered!: () => void
+  let release!: (cwd: string) => void
+  let first = true
+  const started = new Promise<void>(resolve => { entered = resolve })
+  environment(on, undefined, false, async () => {
+    if (!first) return '/repo'
+    first = false
+    entered()
+    return await new Promise<string>(resolve => { release = resolve })
+  })
+  on('tool.call', (_$, e) => e.tool_use_id === 'first' ? ok : fail)
+  await $.command.run({ command: 'loop-reset', args: '' } as never)
+  const pending = $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: 'first' })
+  await started
+  for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: `later-${i}` })
+  release('/repo')
+  await pending
+  const answer = await $.command.run({ command: 'loop-report', args: '' } as never)
+  expect(answer.text).toContain('3 identical failures')
 })
 
 test('successful edits make an edit-retry case; success closes it', async ($, on) => {

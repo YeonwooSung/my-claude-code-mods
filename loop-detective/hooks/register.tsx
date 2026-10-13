@@ -57,8 +57,9 @@ export const register: Register = (on, options) => {
     const own = detector
     let ticket: Ticket | undefined
     try {
+      ticket = own.reserve(String(e.tool), e as unknown as Record<string, unknown>, e.agentId)
       const cwd = e.tool === 'Bash' ? await $.session.cwd().catch(() => undefined) : undefined
-      ticket = own.begin(String(e.tool), e as unknown as Record<string, unknown>, e.agentId, cwd)
+      own.locate(ticket, cwd)
     } catch { /* Unsupported metadata cannot prevent the tool from running. */ }
     let answer
     try {

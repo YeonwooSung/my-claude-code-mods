@@ -107,6 +107,28 @@ test('edits completing after invocation start are not credited to that invocatio
   expect(d.snapshot().active[0]!.kind).toBe('retry')
 })
 
+test('edit epochs are reserved before delayed cwd metadata resolves', () => {
+  const d = new Detector()
+  run(d)
+  const delayed = d.reserve('Bash', { command: 'npm test' })
+  edit(d)
+  d.locate(delayed, '/repo')
+  d.finish(delayed, fail)
+  run(d)
+  expect(d.snapshot().active[0]!.editRetries).toBe(1)
+  expect(d.snapshot().active[0]!.kind).toBe('retry')
+})
+
+test('unknown cwd closes a previous case without bridging its streak', () => {
+  const d = new Detector()
+  run(d); run(d); run(d)
+  d.finish(d.begin('Bash', { command: 'npm test' }), fail)
+  expect(d.snapshot().active).toEqual([])
+  expect(d.snapshot().history[0]!.status).toBe('unknown')
+  run(d); run(d)
+  expect(d.snapshot().active).toEqual([])
+})
+
 test('snapshot copies cannot mutate detector evidence', () => {
   const d = new Detector()
   run(d); edit(d); run(d); edit(d); run(d)
@@ -163,10 +185,12 @@ test('bounded groups, scopes and history expire old evidence', () => {
 test('pending overflow invalidates older tickets and bounds queue', () => {
   const d = new Detector()
   const tickets = Array.from({ length: 17 }, () => d.begin('Bash', { command: 'npm test' }, undefined, '/repo'))
+  expect(d.snapshot().pending).toBe(1)
   for (const t of tickets) d.finish(t, fail)
   expect(d.snapshot().active).toEqual([])
   run(d); run(d)
   expect(d.snapshot().active[0]!.count).toBe(3)
+  expect(d.snapshot().pending).toBe(0)
 })
 
 test('threshold validates configuration and displayed paths are bounded/redacted', () => {
