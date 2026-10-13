@@ -43,12 +43,17 @@ function failedTests(text: string): boolean {
 }
 
 function normalized(text: string): string {
-  return text.replace(/\x1b\[[0-?]*[ -/]*m/g, '').replace(/\r\n/g, '\n').trim()
-    .replace(/^([ \t]*duration_ms:[ \t]*)[\d.]+[ \t]*$/gm, '$1<time>')
+  let out = text.replace(/\x1b\[[0-?]*[ -/]*m/g, '').replace(/\r\n/g, '\n').trim()
+  const tap = /^# (?:tests|pass|fail) \d+[ \t]*$/m.test(out)
+  const jest = /^Tests:[ \t]+[^\n]*\b\d+ (?:passed|failed|skipped)\b/m.test(out)
+  const vitest = /^[ \t]*Tests[ \t]+[^\n]*\b\d+ (?:passed|failed|skipped)\b/m.test(out)
+  if (tap) out = out.replace(/^([ \t]*duration_ms:[ \t]*)[\d.]+[ \t]*$/gm, '$1<time>')
     .replace(/^(# duration_ms )[\d.]+[ \t]*$/gm, '$1<time>')
+  if (jest || vitest) out = out.replace(/^([ \t]*[✓✔×✕✖✗][ \t]+[^\n]* )\([\d.]+ ms\)[ \t]*$/gm, '$1(<time>)')
+  if (jest) out = out.replace(/^Time:[ \t]+[^\n]*$/gm, line => line.replace(/\b[\d.]+\s*(?:ms|s)\b/g, '<time>'))
+  if (vitest) out = out.replace(/^[ \t]*Duration[ \t]+[^\n]*$/gm, line => line.replace(/\b[\d.]+\s*(?:ms|s)\b/g, '<time>'))
+  return out
     .replace(/^(=+[^\n]*\b(?:failed|passed|errors?|skipped)\b[^\n]* in )[\d.]+s/gm, '$1<time>')
-    .replace(/\([\d.]+ ms\)/g, '(<time>)')
-    .replace(/^((?:Time:|[ \t]*Duration[ \t]+)[^\n]*)$/gm, line => line.replace(/\b[\d.]+\s*(?:ms|s)\b/g, '<time>'))
     .replace(/^(test result: [^\n]* finished in )[\d.]+s[ \t]*$/gm, '$1<time>')
     .replace(/^(\s*--- (?:FAIL|PASS): [^\n]* )\([\d.]+s\)$/gm, '$1(<time>)')
     .replace(/^((?:ok|FAIL)\s+\S+\s+)[\d.]+s\s*$/gm, '$1<time>')
