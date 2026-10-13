@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 
 const binary = process.env.CLAUDE_BIN || 'claude'
 let failed = false
-for (const mod of ['agent-profiler', 'context-inspector', 'time-machine']) {
+for (const mod of ['agent-profiler', 'context-inspector', 'time-machine', 'model-effort-band']) {
   const result = spawnSync(binary, ['plugin', 'test', mod], {
     stdio: 'inherit', env: { ...process.env, CLAUDE_CODE_ENABLE_FUNCTION_HOOKS: '1' },
   })
