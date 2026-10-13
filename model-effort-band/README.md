@@ -59,4 +59,4 @@ npm run typecheck
 
 Typecheck requires the local engine-generated `.claude-plugin/types` declarations, as with the other mods. If using this repository's existing 2.1.292 declarations, copy them from `agent-profiler/.claude-plugin/types` to this mod's `.claude-plugin/types`; declarations remain ignored by Git.
 
-Tests cover normalization, state lifetime, stream chunks and final return values, settings denial, renderer failures, surveys, model themes, and compact layouts. Terminal and Desktop **render trees** are tested; live terminal pixels and the Desktop app have not been visually verified. A live terminal check stopped at the engine's workspace trust prompt without changing trust settings.
+Tests cover normalization, state lifetime, stream chunks and final return values, settings denial, model-lookup and invalidation failures, surveys, model themes, and compact layouts. Terminal and Desktop **render trees** are tested; live terminal pixels and the Desktop app have not been visually verified. A live terminal check stopped at the engine's workspace trust prompt without changing trust settings.
