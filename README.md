@@ -10,6 +10,7 @@
 - [loop-detective](loop-detective/README.md) ([한국어](loop-detective/README_KR.md)): detects repeated Bash failures and edit/retry cycles, with evidence, investigation prompts, a live case pane and bounded history.
 - [pin-memo](pin-memo/README.md) ([한국어](pin-memo/README_KR.md)): pins memos and clickable todos above the input, restoring them when the same folder/session is resumed.
 - [model-effort-band](model-effort-band/README.md) ([한국어](model-effort-band/README_KR.md)): shows the selected model and observed main-thread effort in a colored band above the prompt.
+- [token-run](token-run/README.md) ([한국어](token-run/README_KR.md)): a fully local ASCII runner for request failures and short breaks, with jump controls and a saved best score.
 
 ## Development
 
@@ -31,6 +32,7 @@ npm run typecheck         # requires engine-generated declarations in each .clau
 | Pin Memo engine suite | Verified with Claude Code 2.1.292; render trees and Button presses on terminal/Desktop |
 | Loop Detective engine suite | Verified with Claude Code 2.1.280; TypeScript checks use local 2.1.292 declarations |
 | Model Effort Band engine suite | Verified with Claude Code 2.1.292; terminal/Desktop render trees, live pixels unverified |
+| Token Run engine suite | Verified with Claude Code 2.1.292; terminal/Desktop Client keys, buttons and frame clock, live pixels unverified |
 | Early-access Claude Code 2.1.280 | Profiler works; Context Inspector lacks `session.append`, and Time Machine's per-test options are ignored |
 | Live terminal/desktop UI and simultaneous mods | Requires a separate interactive integration run; unit suites do not establish UI compatibility |
 

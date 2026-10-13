@@ -2,11 +2,13 @@
   "name": "my-claude-code-mods-dev",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.19.0" },
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "scripts": {
     "test": "node scripts/test-core.mjs",
     "test:adapters": "node scripts/test-adapters.mjs",
-    "typecheck": "tsc -p agent-profiler && tsc -p context-inspector && tsc -p time-machine && tsc -p loop-detective && tsc -p pin-memo && tsc -p model-effort-band"
+    "typecheck": "tsc -p agent-profiler && tsc -p context-inspector && tsc -p time-machine && tsc -p loop-detective && tsc -p pin-memo && tsc -p model-effort-band && tsc -p token-run"
   },
   "devDependencies": {
     "expect": "30.2.0",

@@ -17,7 +17,7 @@
     {
       "name": "time-machine",
       "source": "./time-machine",
-      "description": "Agent Time Machine: a branching timeline of tool calls with shadow-git snapshots — inspect, diff, explain test failures, restore, branch, compare, re-run"
+      "description": "Agent Time Machine: a branching timeline of tool calls with shadow-git snapshots \u2014 inspect, diff, explain test failures, restore, branch, compare, re-run"
     },
     {
       "name": "loop-detective",
@@ -33,6 +33,11 @@
       "name": "model-effort-band",
       "source": "./model-effort-band",
       "description": "Shows the selected model and observed main-thread effort in a colored band above the prompt"
+    },
+    {
+      "name": "token-run",
+      "source": "./token-run",
+      "description": "Fully local ASCII runner for request failures and short breaks, with jump controls and a saved best score"
     }
   ]
 }
