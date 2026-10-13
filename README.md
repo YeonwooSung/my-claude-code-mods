@@ -1,8 +1,6 @@
 # My Claude Code Mods
 
-[Claude Code Mods Overview](https://code.claude.com/docs/en/plugins/mods/overview)
-
-[Create Claude Code Mods](https://code.claude.com/docs/en/plugins/mods/create)
+[Claude Code Mods Overview](https://code.claude.com/docs/en/plugins/mods/overview) [Create Claude Code Mods](https://code.claude.com/docs/en/plugins/mods/create)
 
 ## Mods
 
