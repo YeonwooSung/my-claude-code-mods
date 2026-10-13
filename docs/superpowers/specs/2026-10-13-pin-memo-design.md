@@ -1,7 +1,7 @@
 # Pin Memo — 설계 스펙
 
 - 작성일: 2026-10-13 (Asia/Seoul)
-- 상태: 사용자 검토 대기. 제품 코드와 테스트는 아직 작성하지 않았다.
+- 상태: 사용자 승인 후 구현·검증 완료 (2026-10-14, Asia/Seoul).
 - 모드명 / 위치: `pin-memo` / `pin-memo/`
 - 목적: Claude Code 입력창 위에 메모와 체크리스트를 고정하고, 같은 폴더에서 같은 세션을 재개하면 복원한다.
 - 디자인 근거: 첨부 이미지의 어두운 바탕, 청록색 둥근 테두리, 핀 제목, 체크 항목과 흐린 완료 항목. 이미지 속 메모 내용은 기능 지시로 해석하지 않는다.
@@ -145,3 +145,14 @@ Node 코어 테스트는 Node 22.19.0 이상과 기존 loader를 사용한다. �
 - 로컬 생성 타입: `agent-profiler/.claude-plugin/types/claude-code/index.d.ts`의 `AbovePrompt`, `ButtonProps`, `store`, `SessionEndInput`, `session.id`, `session.cwd`.
 - 기존 어댑터 패턴: `context-inspector/hooks/register.tsx`, `loop-detective/hooks/register.tsx`.
 - 기존 코어 테스트 실행 방식: `scripts/test-core.mjs`, `scripts/core-loader.mjs`.
+
+## 8. 최종 검증 기록 (2026-10-14)
+
+- 사용자 지시에 따라 main에서 단위별 커밋을 유지했다. 일시 생성한 로컬 `feat/pin-memo`는 커밋을 main에 보존한 뒤 삭제했다.
+- `npm test`: 246/246 통과.
+- Claude Code 2.1.292 `npm run test:adapters`: 305/305 통과 (Pin Memo 29/29).
+- `npm run typecheck`, `plugin validate pin-memo`, `git diff --check`: 통과.
+- Marketplace 검증: 통과; 기존 marketplace description 누락 경고 1개.
+- 독립 리뷰 후 새 identity 실패/이전 응답 경합, 이전 화면 체크 콜백의 세대 검증, POSIX 경로의 백슬래시 보존, 보조 평면 Unicode 폭을 회귀 테스트로 수정했다.
+- 저장 로드 중 추가, lifecycle 반환·오류 보존도 검증했다.
+- 실제 터미널·Desktop 픽셀 캡처 검증은 수행하지 않았다. 렌더 트리·Button press 검증 결과와 구분한다.
