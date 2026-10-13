@@ -12,3 +12,9 @@ const RULES: [RegExp, string][] = [
 export function redactSecrets(text: string): string {
   return RULES.reduce((out, [pattern, replacement]) => out.replace(pattern, replacement), text)
 }
+
+// Match complete key names, including common camelCase/underscore/hyphen spellings.
+// Do not match ordinary names such as token_count or keyboard.
+export function isSecretKey(key: string): boolean {
+  return /^(?:password|passwd|pwd|authorization|proxyauthorization|apikey|accesskey|secretkey|privatekey|clientsecret|secret|token|accesstoken|refreshtoken|idtoken|sessiontoken|authtoken|credential|credentials|cookie|setcookie)$/i.test(key.replace(/[_\s-]/g, ''))
+}

@@ -1,6 +1,6 @@
 import { classifyCommand } from './classify.ts'
 import { contentHash } from './hash.ts'
-import { redactSecrets } from './redact.ts'
+import { isSecretKey, redactSecrets } from './redact.ts'
 import type { StepResult } from './types.ts'
 
 export const MUTATING_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash'])
@@ -68,6 +68,13 @@ export function targetOf(tool: string, input: Record<string, unknown>, root: str
 // The input as stored: engine keys dropped, secrets masked, long strings cut (the snapshot holds the files).
 export function summarizeInput(input: Record<string, unknown>): { input: Record<string, unknown>; lossy: boolean } {
   let lossy = false
+  const field = (key: string, value: unknown, depth: number): unknown => {
+    if (isSecretKey(key)) {
+      lossy = true
+      return '[REDACTED]'
+    }
+    return walk(value, depth)
+  }
   const walk = (value: unknown, depth: number): unknown => {
     if (typeof value === 'string') {
       const masked = redactSecrets(value)
@@ -88,12 +95,12 @@ export function summarizeInput(input: Record<string, unknown>): { input: Record<
         lossy = true
         return '{…}'
       }
-      return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, walk(v, depth + 1)]))
+      return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, field(k, v, depth + 1)]))
     }
     return value
   }
   const out: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(input)) if (!ENGINE_KEYS.has(key)) out[key] = walk(value, 0)
+  for (const [key, value] of Object.entries(input)) if (!ENGINE_KEYS.has(key)) out[key] = field(key, value, 0)
   return { input: out, lossy }
 }
 

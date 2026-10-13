@@ -2,6 +2,15 @@ import { expect, test } from 'claude-code/testing'
 
 import { callInput, isMutating, relPath, resultText, summarizeInput, summarizeResult, targetOf } from '../hooks/core/tools.ts'
 
+test('secret keys mask entire values in nested objects and arrays without masking ordinary fields', () => {
+  const raw = { api_key: 'demo', nested: [{ password: 'pw', Authorization: { bearer: 'secret' }, accessToken: 123, refresh_token: null, 'private-key': ['x'] }], token_count: 12, keyboard: 'keep' }
+  const result = summarizeInput(raw)
+  expect(result.input).toEqual({ api_key: '[REDACTED]', nested: [{ password: '[REDACTED]', Authorization: '[REDACTED]', accessToken: '[REDACTED]', refresh_token: '[REDACTED]', 'private-key': '[REDACTED]' }], token_count: 12, keyboard: 'keep' })
+  expect(result.lossy).toBe(true)
+  expect(raw.api_key).toBe('demo')
+  expect(callInput(raw).api_key).toBe('demo')
+})
+
 test('mutating tools: edits, every Bash by default, unknown and MCP tools', () => {
   expect(isMutating('Edit', {})).toBe(true)
   expect(isMutating('Write', {})).toBe(true)
