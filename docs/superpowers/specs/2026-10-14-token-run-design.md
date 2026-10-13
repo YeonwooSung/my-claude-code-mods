@@ -11,7 +11,7 @@ Provide an immediately understandable local runner game during Claude Code reque
 - The first Space/Up starts and jumps; running Space/Up jumps only from ground. R restarts, P pauses/resumes, Q closes. Modified keys are ignored. Buttons provide Start/Jump, Restart, Pause and Close without global hotkeys.
 - The cursor runner `@` clears compact BUG/429/TIMEOUT obstacles. Collision freezes score and allows immediate restart. Score counts survived seconds; best survives session restarts in the plugin-owned local store.
 - A game is local TypeScript only: no model, fetch, process or extra packages. Physics is pure, immutable, deterministic seeded random, fixed 50 ms steps (20 FPS), fixed 64-cell world and bounded speed/obstacle count.
-- The game requires at least 24 columns and 8 rows. Smaller regions show a resize hint and suspend physics. Losing Pane focus suspends physics, preserving the local run. Closing, survey-induced focus loss, unmount, session start/end/clear dispose the drawing's timer and invalidate old message handles. Closing/reopening starts a new run; best is retained.
+- The game requires at least 24 columns and 8 rows. Smaller regions show a resize hint and suspend physics. Losing Pane focus suspends physics, preserving the local run. Closing, unmount and session start/end/clear dispose the drawing's timer and invalidate old message handles. Focus loss, including survey focus, suspends movement while retaining the instance. Closing/reopening starts a new run; best is retained.
 
 ## Request observation and honesty
 
@@ -30,3 +30,12 @@ The local 2.1.292 contract has no network-status event; opaque `engine` stream m
 Node >=22.19.0; TypeScript/JSX and matching local Claude Code 2.1.292 declarations. No new dependencies. Engine integration tests use the installed VS Code extension binary, not PATH's older 2.1.280.
 
 TDD units: game physics; request/score state; responsive ASCII view; real engine adapter and Client input/timer; marketplace and documentation integration. Each behavior unit observes RED before implementation and GREEN before commit. Run full core suite, all engine suites, typecheck and plugin validation, then a separate review. Verify modified keys, double jumps, tunneling, narrow/NaN sizes, focus loss, reset/unmount, stale messages, failed storage, concurrent saves and stream/result preservation. Actual terminal visual inspection is desirable; report if not performed.
+
+
+## Completion — 2026-10-14
+
+Implemented on main with unit commits; no branch, worktree, push or installation. All behaviors observed RED then GREEN. A read-only independent review found delayed-open resurrection and clipped Pane movement; both fixed with regression tests. Notice truncation and blocked-Q exit were also treated as user-visible behavior problems and fixed. A further regression prevents a late old-turn completion/response from reattaching after reset: only a main `turn.start` binds the current turn.
+
+The Pane now passes actual available rows/columns to the Client, in addition to the measured region. Phase/retry text precedes notices; narrow notices use LOCAL, SAVE! and BACK:Esc. Q detaches and closes immediately while the already-accepted record save finishes. A load-delayed open checks its generation before touching the Pane.
+
+Final verification: core 303/303; engine 399/399 across seven mods, including Token Run 38/38; global typecheck and plugin validate pass. Marketplace validation passes with its pre-existing missing-description warning. Independent reviewer did not assess live terminal/Desktop focus transfer or pixels; render trees, focused inputs and timers were tested in the real engine. External health probing and cross-process store locking remain explicitly out of scope. No deferred code findings.

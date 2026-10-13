@@ -7,7 +7,7 @@ const PANE = {title:'Token Run',isFocused:true,bodyColumns:64,placement:'inline'
 const STEP = {turnId:'t1',index:0,model:'opus',messageCount:1}
 const usage = {input_tokens:1,output_tokens:2,cache_read_input_tokens:0,cache_creation_input_tokens:0,model:'opus'}
 const RESULT: TurnStepResult = {...STEP,answer:'ok',toolUses:[],stopReason:'end_turn',usage}
-function setup(on: On, options: {failRead?:boolean;failWrite?:boolean;failInvalidate?:boolean;failComplete?:()=>void} = {}) {
+function setup(on: On, options: {failRead?:boolean;failWrite?:boolean;failInvalidate?:boolean;failComplete?:()=>void;read?:()=>Promise<unknown>} = {}) {
   const saved = new Map<string,unknown>()
   const opened: unknown[] = []
   const names: string[] = []
@@ -15,7 +15,7 @@ function setup(on: On, options: {failRead?:boolean;failWrite?:boolean;failInvali
   on('session.start',(_$,e)=>({cwd:e.cwd}))
   on('session.end',()=>({sessionId:'s'}))
   on('command.register',(_$,e)=>{names.push(e.name);return {value:{command:e.name}}})
-  on('store.get',(_$,e)=>{if(options.failRead) throw new Error('unreadable');return {value:saved.get(e.key)}})
+  on('store.get',async(_$,e)=>{if(options.failRead) throw new Error('unreadable');return {value:options.read ? await options.read() : saved.get(e.key)}})
   on('store.set',(_$,e)=>{if(options.failWrite) throw new Error('disk full');saved.set(e.key,e.value);return {value:undefined}})
   on('ui.invalidate',()=>{if(options.failInvalidate) throw new Error('no UI');return {value:undefined}})
   on('ui.open',(_$,e)=>{opened.push(e);return {value:{isPlaced:true}}})
@@ -49,6 +49,7 @@ test('registers local command, help does not open, and close targets only its Pa
 
 test('main request error invites without opening; click opens while preserving other mods',async($,on)=>{
   const env=setup(on);await $.session.start(START)
+  await $.turn.start({turnId:'t1',text:'original prompt'})
   expect(await complete($)).toEqual({text:'original answer'})
   expect(env.opened).toHaveLength(0)
   const ui=await $.ui.mount({plugin:'token-run',surface:'terminal',component:'AbovePrompt',props:BAND})
@@ -73,7 +74,7 @@ test('aborted refused subagent and stale completions do not invite',async($,on)=
 test('stream chunks and generator result pass exactly once; response updates an open game',async($,on)=>{
   setup(on);let calls=0
   on('turn.step',async function*(){calls++;yield {kind:'text',index:0,text:'hello'};yield {kind:'stop',stopReason:'end_turn',usage};return RESULT})
-  await $.session.start(START);await complete($);await command($)
+  await $.session.start(START);await $.turn.start({turnId:'t1',text:''});await complete($);await command($)
   const ui=await mount($)
   const stream=$.turn.step(STEP)
   expect(await stream.next()).toEqual({done:false,value:{kind:'text',index:0,text:'hello'}})
@@ -87,7 +88,7 @@ test('stream chunks and generator result pass exactly once; response updates an 
 test('subagent stream cannot announce recovery and invalidate errors never retry downstream',async($,on)=>{
   setup(on,{failInvalidate:true});let calls=0
   on('turn.step',async function*(_$,e){calls++;yield {kind:'text',index:0,text:'one'};return {...RESULT,turnId:e.turnId}})
-  await $.session.start(START);await complete($);await command($)
+  await $.session.start(START);await $.turn.start({turnId:'t1',text:''});await complete($);await command($)
   for await(const _ of $.turn.step({...STEP,agentId:'worker',turnId:'a1'})) {}
   const ui=await mount($)
   expect((await ui.find({key:'run-status',in:'runner'}))?.text).not.toContain('응답이 돌아왔어요')
@@ -195,4 +196,71 @@ test('downstream lifecycle errors propagate once and do not cause duplicate exec
   await $.session.start(START)
   await expect(complete($)).rejects.toThrow()
   expect(calls).toBe(1)
+})
+
+
+test('an opening delayed by storage cannot resurrect a game after session end',async($,on)=>{
+  let hold=false
+  let release!:(value:unknown)=>void
+  let began!:()=>void
+  const waiting=new Promise<unknown>(resolve=>{release=resolve})
+  const started=new Promise<void>(resolve=>{began=resolve})
+  const env=setup(on,{read:async()=>{if(hold){began();return waiting};return undefined}})
+  await $.session.start(START)
+  hold=true
+  const opening=command($)
+  await started
+  await $.session.end({reason:'clear',sessionId:'s',resume:{id:'s'}})
+  release(undefined)
+  await opening
+  expect(env.opened).toHaveLength(0)
+})
+
+test('a short Pane suspends physics despite a tall viewport',async($,on)=>{
+  setup(on);await $.session.start(START);await command($)
+  const ui=await $.ui.mount({plugin:'token-run',surface:'terminal',component:'Pane',requestId:'token-run',
+    props:{...PANE,scroll:{offset:0,bodyRows:7}},viewport:{columns:64,rows:20}})
+  expect((await ui.find({key:'run-resize',in:'runner'}))?.text).toContain('Resize')
+  await ui.key({key:' '});await ui.advance(2000)
+  await ui.redraw(PANE);await ui.resize({columns:64,rows:8})
+  expect((await ui.find({key:'run-score',in:'runner'}))?.text).toContain('SCORE 0')
+})
+
+
+for(const mode of ['recovered','save-warning'] as const) {
+  test(`phase and retry remain visible beside ${mode} in a 24-column game`,async($,on)=>{
+    setup(on,{failWrite:mode==='save-warning'})
+    await $.session.start(START);await $.turn.start({turnId:'t1',text:''})
+    await complete($);await command($)
+    const ui=await $.ui.mount({plugin:'token-run',surface:'terminal',component:'Pane',requestId:'token-run',
+      props:{...PANE,bodyColumns:24},viewport:{columns:24,rows:8}})
+    await ui.key({key:' '});await ui.advance(7000)
+    if(mode==='recovered') await complete($,'answer')
+    await ui.redraw()
+    const raw=(await ui.find({key:'run-phase',in:'runner'}))?.text ?? ''
+    let cells=0,visible=''
+    for(const ch of raw) {const width=/[가-힣]/.test(ch)?2:1;if(cells+width>24)break;visible+=ch;cells+=width}
+    expect(visible).toContain('GAME OVER')
+    expect(visible).toContain('R')
+    expect(visible).toContain(mode==='recovered'?'BACK:Esc':'SAVE!')
+  })
+}
+
+test('Q closes promptly before a blocked best-score write finishes',async($,on)=>{
+  let hold=false
+  let release!:(value:unknown)=>void
+  let began!:()=>void
+  const blocked=new Promise<unknown>(resolve=>{release=resolve})
+  const started=new Promise<void>(resolve=>{began=resolve})
+  const env=setup(on,{read:async()=>{if(hold){began();return blocked};return undefined}})
+  await $.session.start(START);await command($);const ui=await mount($)
+  const before=env.closed.length
+  hold=true
+  const exiting=ui.key({key:'q'})
+  await started
+  await command($,'help')
+  const closedBeforeRelease=env.closed.length
+  release(undefined)
+  await exiting
+  expect(closedBeforeRelease).toBe(before+1)
 })

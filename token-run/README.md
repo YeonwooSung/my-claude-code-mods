@@ -32,6 +32,8 @@ A main turn ending in an error adds a “request failed” game invitation above
 
 Only the focused game receives keys. Ctrl/Meta/Shift combinations are ignored; no global game shortcuts. Escape is handled by the engine. Leaving focus pauses movement; returning resumes it unless P was used. Closing/reopening starts a fresh run. The game needs at least 24 columns and 8 rows; a smaller region shows a resize hint and suspends movement.
 
+Narrow panes shorten status notices to `LOCAL`, `SAVE!` (record save warning) and `BACK:Esc` (response returned). Game-over/retry and pause controls remain visible. Q closes immediately while its accepted score save finishes.
+
 Score counts survived seconds; collisions freeze it. The plugin-owned store saves the best score, shared across this plugin's sessions in the same local engine store. Scores are checkpointed each survived second, on collision and Q exit. Read/write failures show a warning and leave the game playable, with the best retained in memory. Engine close/Escape uses the latest checkpoint. There is no cross-process locking; simultaneous engine processes may race on records.
 
 Terminal and Desktop use the same Client. VS Code chat, mobile and headless sessions do not run the game. Surveys retain priority over the failure invitation and may take focus away from the game.

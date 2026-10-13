@@ -99,3 +99,13 @@ test('a delayed queued load cannot erase a newer score', async () => {
   expect(scores.snapshot().best).toBe(25)
   expect(stored).toEqual({ version: 1, best: 25 })
 })
+
+test('old turn events cannot become current after a session reset', () => {
+  const state = new RequestState()
+  state.begin('old')
+  state.reset()
+  state.complete('old', 'error')
+  expect(state.snapshot().status).toBe('unknown')
+  state.observe('old', 'text')
+  expect(state.snapshot().status).toBe('unknown')
+})

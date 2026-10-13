@@ -14,7 +14,9 @@ async function close($: EngineInterface, state: AdapterState): Promise<void> {
   detach(state); await $.ui.close({ id: PANE }); paint($)
 }
 async function start($: EngineInterface, state: AdapterState): Promise<string> {
+  const opening = state.runId
   await records($, state).load()
+  if (opening !== state.runId || !state.supported) return 'Token Run · 열기 요청이 취소되었습니다.'
   if (!state.open) { state.runId++; state.open = true }
   try {
     const result = await $.ui.open({ id: PANE, title: 'Token Run', focus: true, closeOnEscape: true, rows: 8, columns: 64 })
@@ -74,10 +76,11 @@ export const register: Register = on => {
     const message = data as Record<string, unknown>
     if (message.runId !== state.runId || !validScore(message.score) || (message.type !== 'score' && message.type !== 'exit')) return {}
     const current = state.runId
-    await records($, state).save(message.score)
+    const saving = records($, state).save(message.score)
     if (message.type === 'exit' && state.open && current === state.runId) {
       try { await close($, state) } catch { /* Engine close controls remain available. */ }
     }
+    await saving
     paint($)
     return {}
   })
@@ -94,8 +97,10 @@ export const register: Register = on => {
     const { Box, Client } = $.ui.resolve(e)
     const record = records($, state).snapshot()
     const request = state.requests.snapshot()
+    const columns = Number.isFinite(e.props.bodyColumns) ? Math.max(0, Math.min(80, Math.floor(e.props.bodyColumns))) : 0
+    const rows = Number.isFinite(e.props.scroll.bodyRows) ? Math.max(0, Math.min(8, Math.floor(e.props.scroll.bodyRows))) : 0
     return <Box flexDirection="column">{existing}<Client key="runner" module="./game.tsx"
-      width={Math.max(1, Math.min(80, e.props.bodyColumns))} height={8}
-      props={{ runId: state.runId, focused: e.props.isFocused, best: record.best, error: record.error ?? '', status: request.status, recovered: request.recovered }} /></Box>
+      width={Math.max(1, columns)} height={Math.max(1, rows)}
+      props={{ runId: state.runId, columns, rows, focused: e.props.isFocused, best: record.best, error: record.error ?? '', status: request.status, recovered: request.recovered }} /></Box>
   })
 }

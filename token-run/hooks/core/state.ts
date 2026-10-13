@@ -10,8 +10,7 @@ export class RequestState {
   begin(turnId: string): void { this.turn = turnId; this.value.generation++ }
   private accepts(turnId: string, agentId: string | undefined, generation: number): boolean {
     if (agentId !== undefined || generation !== this.value.generation) return false
-    this.turn ??= turnId
-    return this.turn === turnId
+    return this.turn !== undefined && this.turn === turnId
   }
   observe(turnId: string, kind: string, agentId?: string, generation = this.value.generation): void {
     if (!this.accepts(turnId, agentId, generation) || !['text', 'thinking', 'tool', 'input', 'stop'].includes(kind)) return
