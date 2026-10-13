@@ -110,3 +110,15 @@ test('delayed old write stays under old key and new activation waits for it', as
   expect(c.snapshot().document?.items).toEqual([])
   expect(storage.data.get(storeKey('/repo', 'old'))).toEqual({ version: 1, nextId: 2, items: [{ id: 1, text: 'old note', checked: null }] })
 })
+
+test('an add arriving during a successful load preserves previously saved notes', async () => {
+  const storage = memory()
+  const read = deferred<unknown>()
+  const c = new MemoController({ get: async () => read.promise, set: storage.set })
+  const loading = c.activate('/repo', 's')
+  const adding = c.run('second')
+  read.resolve({ version: 1, nextId: 2, items: [{ id: 1, text: 'first', checked: null }] })
+  await loading
+  await adding
+  expect(c.snapshot().document?.items).toEqual([{ id: 1, text: 'first', checked: null }, { id: 2, text: 'second', checked: null }])
+})

@@ -23,6 +23,11 @@
       "name": "loop-detective",
       "source": "./loop-detective",
       "description": "Repeated-failure detective: evidence-backed Bash retry and edit/retry cases, live pane and investigation prompts"
+    },
+    {
+      "name": "pin-memo",
+      "source": "./pin-memo",
+      "description": "Persistent pinned memos and clickable todos above the prompt, isolated by folder and session"
     }
   ]
 }
