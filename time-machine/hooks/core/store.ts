@@ -44,6 +44,54 @@ export class ChunkWriter {
   }
 }
 
+export type RecordingStatus = { state: 'recording' | 'degraded' | 'not persisted'; pending: number; error?: string }
+
+// Keep the latest full body of every dirty file, including rolled-over chunks. Failed writes
+// remain dirty until acknowledged; concurrent flushes cannot overwrite a newer body with an older one.
+export class DurableWriter {
+  private readonly pending = new Map<string, string>()
+  private writing = Promise.resolve()
+  private saved = false
+  private error: string | undefined
+
+  constructor(private readonly chunks: ChunkWriter) {}
+
+  queueFile(name: string, body: string): void {
+    this.pending.set(name, body)
+  }
+
+  add(records: readonly Rec[]): void {
+    for (const rec of records) {
+      const { name, body } = this.chunks.add(rec)
+      this.queueFile(name, body)
+    }
+  }
+
+  get status(): RecordingStatus {
+    return {
+      state: this.error === undefined ? 'recording' : this.saved ? 'degraded' : 'not persisted',
+      pending: this.pending.size,
+      ...(this.error !== undefined ? { error: this.error } : {}),
+    }
+  }
+
+  flush(write: (name: string, body: string) => Promise<void>): Promise<void> {
+    this.writing = this.writing.then(async () => {
+      try {
+        for (const [name, body] of this.pending) {
+          await write(name, body)
+          if (name.endsWith('.jsonl')) this.saved = true
+          if (this.pending.get(name) === body) this.pending.delete(name)
+        }
+        this.error = undefined
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : String(error)
+      }
+    })
+    return this.writing
+  }
+}
+
 // A session's chunks in write order (load id, then chunk number); lines that are not records are skipped.
 export function parseChunks(files: readonly { name: string; text: string }[]): Rec[] {
   const out: Rec[] = []

@@ -17,7 +17,8 @@ import {
   renderWhy,
   statusLine,
 } from './core/render.ts'
-import { ChunkWriter, parseChunks, projectKey } from './core/store.ts'
+import { ChunkWriter, DurableWriter, parseChunks, projectKey, type RecordingStatus } from './core/store.ts'
+import { redactSecrets } from './core/redact.ts'
 import { parseTestOutput } from './core/testparse.ts'
 import { branchTaken, Recorder } from './core/timeline.ts'
 import { ACTING_TOOLS, callInput, isMutating, resultText, summarizeInput, summarizeResult, targetOf } from './core/tools.ts'
@@ -49,8 +50,8 @@ type Ctx = {
   ready?: Promise<void>
   off?: string
   head?: string
-  writer: ChunkWriter
-  writing: Promise<void>
+  writer: DurableWriter
+  warnedStore?: boolean
   inflight: number
   snapMs: number[]
   failing?: { count: number; since: number; error: string }
@@ -63,6 +64,8 @@ type Ctx = {
 }
 
 let ctx: Ctx | undefined
+// /clear and /resume must not discard dirty file bodies while the module remains alive.
+const retired = new Set<Ctx>()
 // Session starts in this module load: each gets its own chunk names, which still sort in start order.
 let starts = 0
 let currentOptions: PluginOptions = {}
@@ -85,25 +88,37 @@ async function storeDir($: EngineInterface, options: PluginOptions): Promise<str
 }
 
 // Records written in order: every chunk a batch touched gets its final body.
-async function persist($: EngineInterface, c: Ctx): Promise<void> {
-  const recs = c.rec.drain()
-  if (recs.length === 0) return c.writing
-  const writes = new Map<string, string>()
-  for (const rec of recs) {
-    const { name, body } = c.writer.add(rec)
-    writes.set(name, body)
+async function persistOne($: EngineInterface, c: Ctx): Promise<void> {
+  c.writer.add(c.rec.drain())
+  await c.writer.flush(async (name, body) => { await $.fs.write(`${c.dir}/${name}`, body) })
+  const status = c.writer.status
+  if (status.error !== undefined && !c.warnedStore) {
+    c.warnedStore = true
+    try {
+      $.ui.toast(`time-machine: ${status.state}; unsaved records retained for retry (${redactSecrets(status.error).slice(0, 200)})`)
+    } catch { /* recording must not break the session */ }
   }
-  c.writing = c.writing
-    .then(async () => {
-      for (const [name, body] of writes) await $.fs.write(`${c.dir}/${name}`, body)
-    })
-    .catch(() => undefined)
-  return c.writing
+  if (status.error === undefined) c.warnedStore = false
+}
+
+async function persist($: EngineInterface, c: Ctx): Promise<void> {
+  await persistOne($, c)
+  for (const previous of retired) {
+    if (previous !== c) await persistOne($, previous)
+    if (previous.writer.status.pending === 0) retired.delete(previous)
+  }
+  paint($, c)
+}
+
+function recordingStatus(c: Ctx): RecordingStatus {
+  const own = c.writer.status
+  const pending = [...retired].filter(previous => previous !== c).reduce((sum, previous) => sum + previous.writer.status.pending, 0)
+  return pending > 0 ? { state: own.state === 'not persisted' ? own.state : 'degraded', pending: own.pending + pending, error: 'earlier session records await retry' } : own
 }
 
 function paint($: EngineInterface, c: Ctx): void {
   try {
-    $.ui.status(statusLine(c.rec, c.snapMs, c.off))
+    $.ui.status(statusLine(c.rec, c.snapMs, c.off, recordingStatus(c)))
     $.ui.invalidate('ui.render')
   } catch {
     // no status line here
@@ -127,11 +142,18 @@ async function loadRecorder($: EngineInterface, dir: string): Promise<Recorder |
 }
 
 async function startSession($: EngineInterface): Promise<Ctx> {
+  if (ctx) {
+    await persist($, ctx)
+    if (ctx.writer.status.pending > 0) retired.add(ctx)
+  }
   const sessionId = await $.session.id()
   const root = await $.session.root()
   const base = `${await storeDir($, currentOptions)}/${projectKey(root)}`
   const dir = `${base}/sessions/${sessionId}`
-  const rec = (await loadRecorder($, dir)) ?? new Recorder({ sessionId, root, startedAt: Date.now(), loadId: LOAD_ID })
+  // Disk may be missing the newest steps after a failed flush. Resume that in-memory history
+  // before allocating step numbers, or a reload would collapse old/new steps with the same n.
+  const remembered = [...retired].reverse().find(previous => previous.dir === dir && previous.root === root)
+  const rec = remembered?.rec ?? (await loadRecorder($, dir)) ?? new Recorder({ sessionId, root, startedAt: Date.now(), loadId: LOAD_ID })
   starts += 1
   // Four digits: chunk names sort in start order through 9999 starts in one module load.
   const c: Ctx = {
@@ -139,8 +161,7 @@ async function startSession($: EngineInterface): Promise<Ctx> {
     root,
     base,
     dir,
-    writer: new ChunkWriter(`${LOAD_ID}${String(starts).padStart(4, '0')}`),
-    writing: Promise.resolve(),
+    writer: new DurableWriter(new ChunkWriter(`${LOAD_ID}${String(starts).padStart(4, '0')}`)),
     inflight: 0,
     snapMs: [],
     live: new Map(),
@@ -148,11 +169,7 @@ async function startSession($: EngineInterface): Promise<Ctx> {
   }
   const last = rec.lastSnapshot()
   if (last?.snapshot) c.head = last.snapshot.commit
-  try {
-    await $.fs.write(`${dir}/meta.json`, JSON.stringify({ sessionId, root, startedAt: rec.session.startedAt }))
-  } catch {
-    // the timeline still lives in memory
-  }
+  c.writer.queueFile('meta.json', JSON.stringify({ sessionId, root, startedAt: rec.session.startedAt }))
   await persist($, c)
   return c
 }
@@ -489,7 +506,7 @@ async function runTm($: EngineInterface, c: Ctx, args: string): Promise<string> 
       const branchAt = words.indexOf('--branch')
       const branch = branchAt >= 0 ? words[branchAt + 1] : undefined
       if (branch !== undefined && !c.rec.branches.has(branch)) return `time-machine: no branch '${branch}'`
-      return renderTimeline(c.rec, { all: flags.has('--all'), ...(branch ? { branch } : {}), ...(c.off ? { off: c.off } : {}), snapMs: c.snapMs })
+      return renderTimeline(c.rec, { all: flags.has('--all'), ...(branch ? { branch } : {}), ...(c.off ? { off: c.off } : {}), snapMs: c.snapMs, recording: recordingStatus(c) })
     }
     case 'show': {
       const n = num(rest[1])
@@ -592,6 +609,7 @@ export const register: Register = (on, options) => {
     const result = await next(e)
     if ((e.reason === 'clear' || e.reason === 'resume') && ctx) ctx.ended = true
     return result
+    if (ctx) await persist($, ctx)
   }).catch(($, e, next) => next(e))
 
   on('turn.start', async ($, e, next) => {
@@ -699,7 +717,7 @@ export const register: Register = (on, options) => {
     const { Box, Text } = $.ui.resolve(e)
     let lines: string[]
     try {
-      lines = ctx ? renderTimeline(ctx.rec, { ...(ctx.off ? { off: ctx.off } : {}), snapMs: ctx.snapMs }).split('\n') : ['Time Machine: not recording']
+      lines = ctx ? renderTimeline(ctx.rec, { ...(ctx.off ? { off: ctx.off } : {}), snapMs: ctx.snapMs, recording: recordingStatus(ctx) }).split('\n') : ['Time Machine: not recording']
     } catch (error) {
       lines = [`time-machine: ${message(error)}`]
     }

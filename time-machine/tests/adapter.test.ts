@@ -1,12 +1,57 @@
 import type { On } from 'claude-code'
 import { type Engine, expect, mock, test } from 'claude-code/testing'
 
-import { branchTaken } from '../hooks/core/timeline.ts'
+import { branchTaken, Recorder } from '../hooks/core/timeline.ts'
+import { parseChunks } from '../hooks/core/store.ts'
+
+test('failed persistence is visible and recovers every queued record on the next event', async ($, on) => {
+  const writes = new Map<string, string>()
+  let fail = true
+  world(on, writes, undefined, () => fail)
+  on('ui.toast', () => ({ value: undefined }))
+  await $.session.start({ cwd: '/r', surface: null, isInteractive: false } as never)
+  await $.tool.call({ tool: 'Read', file_path: '/r/a', tool_use_id: 'a' } as never)
+  const report = async (): Promise<string> => String((await $.command.run({ command: 'tm', args: '' } as never)).text)
+  expect(await report()).toContain('not persisted')
+  fail = false
+  await $.tool.call({ tool: 'Read', file_path: '/r/b', tool_use_id: 'b' } as never)
+  expect(await report()).toContain('recording')
+  const records = [...writes.entries()].filter(([p]) => p.endsWith('.jsonl')).flatMap(([, body]) => body.trim().split('\n').map(line => JSON.parse(line)))
+  expect(records.filter(r => r.type === 'step').map(r => r.id)).toEqual(['a', 'b'])
+  expect([...writes.keys()].some(p => p.endsWith('/meta.json'))).toBe(true)
+  fail = true
+  await $.tool.call({ tool: 'Read', file_path: '/r/c', tool_use_id: 'c' } as never)
+  expect(await report()).toContain('degraded')
+  fail = false
+  await $.tool.call({ tool: 'Read', file_path: '/r/d', tool_use_id: 'd' } as never)
+  expect(await report()).toContain('recording')
+})
+
+test('failed recording survives clear and is retried after the session context is replaced', async ($, on) => {
+  const writes = new Map<string, string>()
+  let fail = true
+  world(on, writes, undefined, () => fail)
+  on('session.end', () => ({ sessionId: 'sess-1' }))
+  on('ui.toast', () => ({ value: undefined }))
+  await $.session.start({ cwd: '/r', surface: null, isInteractive: false } as never)
+  await $.tool.call({ tool: 'Read', file_path: '/r/old', tool_use_id: 'old' } as never)
+  await $.session.end({ reason: 'clear' } as never)
+  await $.session.start({ cwd: '/r', surface: null, isInteractive: false } as never)
+  fail = false
+  await $.tool.call({ tool: 'Read', file_path: '/r/new', tool_use_id: 'new' } as never)
+  const ids = [...writes.entries()].filter(([p]) => p.endsWith('.jsonl')).flatMap(([, body]) => body.trim().split('\n').map(line => JSON.parse(line))).filter(r => r.type === 'step').map(r => r.id)
+  expect(ids).toContain('old')
+  expect(ids).toContain('new')
+  const chunks = [...writes.entries()].filter(([p]) => p.endsWith('.jsonl')).map(([name, text]) => ({ name, text }))
+  const restored = Recorder.fromRecords(parseChunks(chunks))!
+  expect(restored.all().filter(step => step.kind === 'tool').map(step => step.id)).toEqual(['old', 'new'])
+  expect(restored.all().filter(step => step.kind === 'tool').map(step => step.n)).toEqual([1, 2])
+})
 
 const PYTEST_FAIL = `FAILED tests/test_auth.py::test_login - AssertionError\ntests/test_auth.py:12: AssertionError\n========================= 1 failed, 4 passed in 0.10s =========================`
 
 // The runner's `$` has no `process`, so git is unavailable here: these tests run the "snapshots off" path.
-function world(on: On, writes: Map<string, string>, toolAnswer?: (e: { tool: string; tool_use_id?: string }) => unknown): void {
+function world(on: On, writes: Map<string, string>, toolAnswer?: (e: { tool: string; tool_use_id?: string }) => unknown, denyWrites?: () => boolean): void {
   mock.env(on, { HOME: '/Users/u' })
   mock.store(on)
   on('session.id', () => ({ value: 'sess-1' }))
@@ -14,6 +59,7 @@ function world(on: On, writes: Map<string, string>, toolAnswer?: (e: { tool: str
   on('session.cwd', () => ({ value: '/r' }))
   on('fs.list', () => ({ value: [] }))
   on('fs.write', (_$, e) => {
+    if (denyWrites?.()) return { deny: 'ENOSPC' }
     writes.set(e.path, e.text)
     return { value: undefined }
   })

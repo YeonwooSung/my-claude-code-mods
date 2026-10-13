@@ -61,7 +61,7 @@ export function avg(xs: readonly number[]): number | undefined {
   return xs.length > 0 ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : undefined
 }
 
-export type TimelineOptions = { all?: boolean; branch?: string; limit?: number; off?: string; snapMs?: readonly number[] }
+export type TimelineOptions = { all?: boolean; branch?: string; limit?: number; off?: string; snapMs?: readonly number[]; recording?: import('./store.ts').RecordingStatus }
 
 export function renderTimeline(rec: Recorder, o: TimelineOptions = {}): string {
   const branch = o.branch ?? rec.branch
@@ -72,6 +72,7 @@ export function renderTimeline(rec: Recorder, o: TimelineOptions = {}): string {
   const mean = avg(o.snapMs ?? [])
   const lines = [`Session ${rec.session.sessionId.slice(0, 8)} · branch ${branch} · ${count} step(s) · ${snaps} snapshot(s)${mean !== undefined ? `, avg ${mean}ms` : ''}`]
   if (o.off) lines.push(`snapshots off: ${o.off}`)
+  if (o.recording) lines.push(`storage: ${o.recording.state}${o.recording.error !== undefined ? ` · ${o.recording.pending} file(s) awaiting retry; records retained in memory` : ''}`)
   if (shown.every(s => s.kind === 'baseline')) return [...lines, '', 'No tool calls recorded yet.'].join('\n')
   if (steps.length > shown.length) lines.push(`(${steps.length - shown.length} earlier step(s) hidden; /tm timeline --all)`)
   lines.push('│')
@@ -214,11 +215,12 @@ export function renderSessions(rows: readonly { id: string; startedAt: number; c
   return ['Recorded sessions (newest first):', ...sorted.map(r => `  ${r.id}${r.current ? ' (this session)' : ''} · started ${started(r.startedAt)}`)].join('\n')
 }
 
-export function statusLine(rec: Recorder, snapMs: readonly number[], off?: string): string {
+export function statusLine(rec: Recorder, snapMs: readonly number[], off?: string, recording?: import('./store.ts').RecordingStatus): string {
   const steps = rec.all().filter(s => s.kind !== 'baseline')
   const last = steps.at(-1)?.n ?? 0
-  if (off) return `tm ${circled(last)} · snapshots off`
+  const storage = recording ? ` · ${recording.state}` : ''
+  if (off) return `tm ${circled(last)} · snapshots off${storage}`
   const snaps = steps.filter(s => s.snapshot?.changed).length
   const mean = avg(snapMs)
-  return `tm ${circled(last)} · ${snaps} snaps${mean !== undefined ? ` · ${mean}ms` : ''}`
+  return `tm ${circled(last)} · ${snaps} snaps${mean !== undefined ? ` · ${mean}ms` : ''}${storage}`
 }

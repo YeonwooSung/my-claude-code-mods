@@ -1,7 +1,48 @@
 import { expect, test } from 'claude-code/testing'
 
 import { contentHash } from '../hooks/core/hash.ts'
-import { ChunkWriter, chunkName, parseChunks, projectKey } from '../hooks/core/store.ts'
+import { ChunkWriter, DurableWriter, chunkName, parseChunks, projectKey } from '../hooks/core/store.ts'
+
+test('failed chunks survive rollover and retry in order without duplicate records', async () => {
+  const writer = new DurableWriter(new ChunkWriter('retry', 70))
+  writer.add([{ type: 'branch', name: 'main', fromStep: 0, at: 1 }, { type: 'branch', name: 'b1', fromStep: 1, at: 2 }])
+  const files = new Map<string, string>()
+  await writer.flush(async () => { throw new Error('ENOSPC') })
+  expect(writer.status.state).toBe('not persisted')
+  writer.add([{ type: 'branch', name: 'b2', fromStep: 2, at: 3 }])
+  let calls = 0
+  await writer.flush(async (name, body) => {
+    calls += 1
+    if (calls === 2) throw new Error('EACCES')
+    files.set(name, body)
+  })
+  expect(writer.status.state).toBe('degraded')
+  await Promise.all([writer.flush(async (name, body) => { files.set(name, body) }), writer.flush(async (name, body) => { files.set(name, body) })])
+  expect(writer.status.state).toBe('recording')
+  expect(parseChunks([...files].map(([name, text]) => ({ name, text }))).map(r => 'name' in r ? r.name : '')).toEqual(['main', 'b1', 'b2'])
+})
+
+test('a record added during a write cannot be acknowledged by the older body', async () => {
+  const writer = new DurableWriter(new ChunkWriter('race'))
+  const files = new Map<string, string>()
+  writer.add([{ type: 'branch', name: 'first', fromStep: 0, at: 1 }])
+  let resume!: () => void
+  let started!: () => void
+  const entered = new Promise<void>(resolve => { started = resolve })
+  const gate = new Promise<void>(resolve => { resume = resolve })
+  const old = writer.flush(async (name, body) => {
+    started()
+    await gate
+    files.set(name, body)
+  })
+  await entered
+  writer.add([{ type: 'branch', name: 'second', fromStep: 1, at: 2 }])
+  const next = writer.flush(async (name, body) => { files.set(name, body) })
+  resume()
+  await Promise.all([old, next])
+  expect(parseChunks([...files].map(([name, text]) => ({ name, text }))).map(r => 'name' in r ? r.name : '')).toEqual(['first', 'second'])
+  expect(writer.status.pending).toBe(0)
+})
 
 test('contentHash is 16 hex digits and content-dependent', () => {
   expect(contentHash('a')).toMatch(/^[0-9a-f]{16}$/)
