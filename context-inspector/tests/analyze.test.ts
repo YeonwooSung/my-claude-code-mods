@@ -20,6 +20,19 @@ test('long outputs with different tails are never exact or charged as whole-outp
   expect(similar(l.snapshot().items, 1).wasteEst).toBe(items[0]!.est)
 })
 
+test('identical and near outputs in different contexts do not create window waste', () => {
+  const l = new Ledger()
+  runBash(l, 'a', 'npm test', okLines(40) + '\nTime: 1.23s')
+  runBash(l, 'b', 'npm test', okLines(40) + '\nTime: 1.23s', 'a1')
+  runBash(l, 'c', 'npm test', okLines(40) + '\nTime: 4.56s', 'a2')
+  expect(similar(l.snapshot().items, 1).wasteEst).toBe(0)
+  runBash(l, 'd', 'npm test', okLines(40) + '\nTime: 1.23s', 'a1')
+  const result = similar(l.snapshot().items, 1)
+  expect(result.clusters.length).toBe(1)
+  expect(result.clusters[0]!.size).toBe(2)
+  expect(result.wasteEst).toBe(l.snapshot().items[1]!.est)
+})
+
 test('near matching never charges unseen words beyond the SimHash word limit', () => {
   const l = new Ledger()
   const prefix = 'word '.repeat(20_001)

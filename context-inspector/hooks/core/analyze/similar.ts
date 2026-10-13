@@ -39,9 +39,10 @@ export function similar(items: readonly ContextItem[], k: number, exclude: Reado
   const firstByHash = new Map<string, number>()
   const reps: number[] = []
   cand.forEach((item, i) => {
-    const first = firstByHash.get(item.hash)
+    const key = JSON.stringify([item.ctx, item.chars, item.hash])
+    const first = firstByHash.get(key)
     if (first === undefined) {
-      firstByHash.set(item.hash, i)
+      firstByHash.set(key, i)
       reps.push(i)
     } else {
       union(first, i)
@@ -53,10 +54,11 @@ export function similar(items: readonly ContextItem[], k: number, exclude: Reado
     if (h === undefined) continue
     const tried = new Set<number>()
     for (const band of bands(h)) {
-      let bucket = buckets.get(band)
+      const key = JSON.stringify([cand[i]!.ctx, band])
+      let bucket = buckets.get(key)
       if (!bucket) {
         bucket = []
-        buckets.set(band, bucket)
+        buckets.set(key, bucket)
       }
       for (const j of bucket) {
         if (tried.has(j)) continue
