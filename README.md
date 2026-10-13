@@ -11,6 +11,7 @@
 - [time-machine](time-machine/README.md) ([한국어](time-machine/README_KR.md)): records every tool call on a branching timeline with shadow-git snapshots, so you can see the files as they were at any step, explain which edit broke a test, restore, branch, compare runs and re-run steps.
 - [loop-detective](loop-detective/README.md) ([한국어](loop-detective/README_KR.md)): detects repeated Bash failures and edit/retry cycles, with evidence, investigation prompts, a live case pane and bounded history.
 - [pin-memo](pin-memo/README.md) ([한국어](pin-memo/README_KR.md)): pins memos and clickable todos above the input, restoring them when the same folder/session is resumed.
+- [model-effort-band](model-effort-band/README.md) ([한국어](model-effort-band/README_KR.md)): shows the selected model and observed main-thread effort in a colored band above the prompt.
 
 ## Development
 
@@ -31,6 +32,7 @@ npm run typecheck         # requires engine-generated declarations in each .clau
 | Original three engine test suites | Verified with Claude Code 2.1.292 |
 | Pin Memo engine suite | Verified with Claude Code 2.1.292; render trees and Button presses on terminal/Desktop |
 | Loop Detective engine suite | Verified with Claude Code 2.1.280; TypeScript checks use local 2.1.292 declarations |
+| Model Effort Band engine suite | Verified with Claude Code 2.1.292; terminal/Desktop render trees, live pixels unverified |
 | Early-access Claude Code 2.1.280 | Profiler works; Context Inspector lacks `session.append`, and Time Machine's per-test options are ignored |
 | Live terminal/desktop UI and simultaneous mods | Requires a separate interactive integration run; unit suites do not establish UI compatibility |
 

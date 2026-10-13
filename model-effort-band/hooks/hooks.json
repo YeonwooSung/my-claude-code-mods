@@ -1,0 +1,4 @@
+{
+  "description": "Model Effort Band hooks module",
+  "modules": ["./register.tsx"]
+}

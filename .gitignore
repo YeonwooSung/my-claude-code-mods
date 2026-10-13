@@ -168,3 +168,6 @@ loop-detective/.claude-plugin/types/
 
 # pin-memo: local engine declarations
 pin-memo/.claude-plugin/types/
+
+# model-effort-band: engine-generated type declarations
+model-effort-band/.claude-plugin/types/

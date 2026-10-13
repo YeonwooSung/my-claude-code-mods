@@ -1,7 +1,7 @@
 # Model Effort Band — 설계 스펙
 
 - 작성일: 2026-10-13 (Asia/Seoul)
-- 상태: 사용자 검토 대기. 구현 코드 작성 전 검토한다.
+- 상태: 사용자 승인 후 구현·자동 검증·독립 코드 리뷰 완료.
 - 모드명 / 위치: `model-effort-band` / `model-effort-band/`
 - 목적: Claude Code 입력창 위에서 현재 모델과 메인 대화의 effort를 한눈에 확인한다.
 - 디자인 근거: 사용자가 첨부한 모델별 녹색·파랑·보라 테두리 띠. 이미지의 `5.5`는 예시이며 실제 모델의 버전을 표시한다.
@@ -131,3 +131,20 @@ model-effort-band/
 - 로컬 근거: `agent-profiler/.claude-plugin/types/claude-code/index.d.ts`의 `TurnStepInput`, `AbovePrompt`, `session.model`, `config.set`, `PostModelSwitch`, `BoxProps`.
 - 구현 전 `npm test`: 199개 통과, 실패 0 (2026-10-13).
 - 현재 기본 `claude`: 2.1.280. 검증에는 설치되어 있는 VS Code 확장의 2.1.292 바이너리를 명시적으로 사용한다.
+
+## 7. 구현 검증 기록 (2026-10-14)
+
+- 기능 브랜치: `feat/model-effort-band`. 동시 진행 중인 작업을 보호하기 위해 독립 worktree에서 구현했다.
+- TDD: 코어 빈 구현을 38개 테스트로 실행해 기능 부재에 따른 assertion 실패를 확인한 뒤 구현했다. 어댑터는 빈 register에서 표시 테스트의 실패를 확인했다. 리로드 초기화와 텍스트 인접 배치는 결함을 제거/재현한 RED→GREEN 회귀 테스트로 추가 검증했다.
+- 코어 테스트: 총 237개 (새 모드 38개 포함), 실패 0. Node 22.19.0에서도 237개 전부 통과했다.
+- 엔진 테스트: 2.1.292에서 총 291개 (59 + 78 + 98 + 새 모드 56), 실패 0.
+- 전체 모드 typecheck 및 새 모드 plugin validate 통과.
+- 실제 화면: CLI의 작업 폴더 신뢰 확인 단계에서 중단했다. 신뢰 설정을 바꾸지 않았으며 터미널 픽셀·Desktop 실제 화면은 미검증이다.
+- 계획 보정: 2.1.292의 `turn.start`는 `agentId`가 없는 메인 턴 이벤트이므로 조건 없이 초기화한다. downstream 훅 오류는 엔진이 `HooksError`로 변환하므로 원문 오류 문자열 대신 실패 전달과 실행 한 번을 검증한다.
+
+### 최종 코드 리뷰
+
+- 독립 리뷰어 결과: Critical 0, Important 0. 새 코어 38개를 별도로 실행해 모두 통과했다.
+- Minor 문서 지적: 렌더 실패 전체를 검증했다는 표현을 실제 테스트 대상인 모델 조회·화면 갱신 실패로 좁혔다. `ui.resolve`/요소 생성 실패 분기와 downstream `ui.render` 거부는 전용 테스트가 없다.
+- 실제 터미널·Desktop 픽셀, 임의 Unicode 말줄임, 여러 모드가 동시에 표시되는 화면은 미검증이다. 코드와 엔진 타입이 보장하는 폭 제한·말줄임·트리 보존 및 스크롤 계약을 사용하며 실제 화면 확인 시 재평가한다.
+- 최종 브랜치는 `feat/model-effort-band`에 보존한다. 다른 작업이 진행 중인 `main`에 대한 통합과 원격 push는 별도 선택 후 수행한다.

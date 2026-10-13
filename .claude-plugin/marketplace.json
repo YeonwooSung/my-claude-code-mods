@@ -28,6 +28,11 @@
       "name": "pin-memo",
       "source": "./pin-memo",
       "description": "Persistent pinned memos and clickable todos above the prompt, isolated by folder and session"
+    },
+    {
+      "name": "model-effort-band",
+      "source": "./model-effort-band",
+      "description": "Shows the selected model and observed main-thread effort in a colored band above the prompt"
     }
   ]
 }
