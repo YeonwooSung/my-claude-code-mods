@@ -1,6 +1,7 @@
 import type { EngineInterface, PluginOptions, Register, Timer } from 'claude-code'
 
 import { summarize, type Scope, type Summary } from './core/analyze.ts'
+import { SummaryCache } from './core/cache.ts'
 import { MAX_EXPORT_BYTES, pendingKeys, splitRequest } from './core/export.ts'
 import { toOtlp, type OtlpRequest } from './core/otlp.ts'
 import { Profiler, summarizeInput, toolOutcome } from './core/profiler.ts'
@@ -25,7 +26,7 @@ let ticker: Timer | undefined
 // Records already written as a per-turn batch, for the current profiler.
 let exported = new Set<string>()
 const toasted = new Set<string>()
-const summaries = new Map<Scope, { profiler: Profiler; version: number; sum: Summary }>()
+const summaries = new SummaryCache()
 
 // Recording must never break the session: every bookkeeping step goes through here.
 function safe<T>(fn: () => T): void {
@@ -36,13 +37,9 @@ function safe<T>(fn: () => T): void {
   }
 }
 
-// The status line, the pane and the ticker share one summary per profiler version.
+// Share a paint bucket while live; completed sessions keep their version-only cache.
 function cachedSummary(scope: Scope = 'session'): Summary {
-  const hit = summaries.get(scope)
-  if (hit && hit.profiler === profiler && hit.version === profiler.version) return hit.sum
-  const sum = summarize(profiler.snapshot(Date.now()), scope)
-  summaries.set(scope, { profiler, version: profiler.version, sum })
-  return sum
+  return summaries.get(profiler, scope, Date.now())
 }
 
 function paintNow($: EngineInterface): void {

@@ -75,6 +75,10 @@ export class Profiler {
   // Bumped on every change, so callers can cache what they derive from a snapshot.
   version = 0
 
+  get isLive(): boolean {
+    return this.openSteps.size > 0 || this.openTools.size > 0 || this.openAgents.size > 0 || [...this.openTurns.values()].some(turns => turns.length > 0)
+  }
+
   constructor(sessionId = 'unknown', maxSpans = 20_000) {
     this.sessionId = sessionId
     this.maxSpans = maxSpans
