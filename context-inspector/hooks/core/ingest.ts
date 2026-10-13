@@ -1,5 +1,5 @@
 import { extractEntities, flattenMessages, isMentioned, type MessageLike } from './entities.ts'
-import { contentHash, simhash64 } from './hash.ts'
+import { contentHash, MAX_SIMHASH_WORDS, simhash64 } from './hash.ts'
 import { Ledger, type ToolInfo } from './ledger.ts'
 import { changedLines, EDIT_TOOLS } from './lines.ts'
 import { blockText, HASH_CHARS, normalize } from './text.ts'
@@ -105,12 +105,14 @@ export function ingestToolResult(l: Ledger, id: string, answer: unknown): void {
 }
 
 function measure(text: string, images: number, tool: boolean): { chars: number; est: number; hash: string; simhash?: string } {
-  const cut = text.length > HASH_CHARS ? text.slice(0, HASH_CHARS) : text
+  const normalized = tool && text.length >= SIMHASH_MIN_CHARS && text.length <= HASH_CHARS ? normalize(text) : undefined
+  const complete = normalized !== undefined && normalized.split(' ').filter(Boolean).length <= MAX_SIMHASH_WORDS
   return {
     chars: text.length,
     est: estimate(text.length, images),
-    hash: contentHash(cut),
-    simhash: tool && text.length >= SIMHASH_MIN_CHARS ? simhash64(normalize(cut)) : undefined,
+    hash: contentHash(text),
+    // Near similarity cannot justify whole-output waste when only a prefix was measured.
+    simhash: complete ? simhash64(normalized!) : undefined,
   }
 }
 

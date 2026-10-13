@@ -19,12 +19,12 @@ export function contentHash(text: string): string {
   return hex(hash32(text, 0)) + hex(hash32(text, 0x9747b28c))
 }
 
-const MAX_WORDS = 20_000
+export const MAX_SIMHASH_WORDS = 20_000
 
 // 64-bit SimHash over word 3-shingles of normalized text: near-identical texts land a few bits apart.
 // Lexical locality-sensitive hashing, not semantic similarity.
 export function simhash64(normalized: string): string {
-  const words = normalized.split(' ').filter(w => w !== '').slice(0, MAX_WORDS)
+  const words = normalized.split(' ').filter(w => w !== '').slice(0, MAX_SIMHASH_WORDS)
   const counts = new Int32Array(64)
   const shingles = Math.max(1, words.length - 2)
   for (let i = 0; i < shingles; i += 1) {

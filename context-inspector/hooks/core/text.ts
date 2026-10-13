@@ -1,4 +1,4 @@
-// Hashes read at most this much of a row; character counts still cover all of it.
+// Upper bound for lexical similarity work; exact hashes and character counts cover the whole row.
 export const HASH_CHARS = 256 * 1024
 
 export type Extracted = { text: string; images: number }

@@ -5,6 +5,28 @@ import { efficiency } from '../hooks/core/analyze/efficiency.ts'
 import { occupancy } from '../hooks/core/analyze/occupancy.ts'
 import { rereads } from '../hooks/core/analyze/rereads.ts'
 import { similar } from '../hooks/core/analyze/similar.ts'
+
+test('long outputs with different tails are never exact or charged as whole-output duplicates from a sample', () => {
+  const l = new Ledger()
+  const prefix = 'shared output '.repeat(22_000)
+  runBash(l, 'a', 'npm test', prefix + 'FAILED')
+  runBash(l, 'b', 'npm test', prefix + 'PASSED')
+  const items = l.snapshot().items
+  expect(items[0]!.hash).not.toBe(items[1]!.hash)
+  const result = similar(items, 1)
+  expect(result.clusters.some(c => c.kind === 'exact')).toBe(false)
+  expect(result.wasteEst).toBe(0)
+  runBash(l, 'c', 'npm test', prefix + 'FAILED')
+  expect(similar(l.snapshot().items, 1).wasteEst).toBe(items[0]!.est)
+})
+
+test('near matching never charges unseen words beyond the SimHash word limit', () => {
+  const l = new Ledger()
+  const prefix = 'word '.repeat(20_001)
+  runBash(l, 'a', 'npm test', prefix + 'FAILED')
+  runBash(l, 'b', 'npm test', prefix + 'PASSED')
+  expect(similar(l.snapshot().items, 1).wasteEst).toBe(0)
+})
 import { ingestAppend, ingestCompaction } from '../hooks/core/ingest.ts'
 import { Ledger } from '../hooks/core/ledger.ts'
 import { attachmentRow, editFile, letters, okLines, promptRow, readFile, runBash } from './fixtures.ts'
