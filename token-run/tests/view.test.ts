@@ -30,7 +30,7 @@ test('jump height moves the runner above the ground without changing simulation'
   expect(groundView[5]).toContain('@')
   expect(flyingView[4]).toContain('@')
   expect(flyingView[5]).not.toContain('@')
-  expect(flying.y).toBeCloseTo(0.8)
+  expect(Math.abs(flying.y - 0.8)).toBeLessThan(0.000001)
 })
 
 test('obstacles clip at both edges and visible labels are placed on the track', () => {

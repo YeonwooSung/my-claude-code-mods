@@ -171,3 +171,6 @@ pin-memo/.claude-plugin/types/
 
 # model-effort-band: engine-generated type declarations
 model-effort-band/.claude-plugin/types/
+
+# token-run: engine-generated local declarations
+token-run/.claude-plugin/types/

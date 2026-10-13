@@ -53,7 +53,7 @@ test('offscreen obstacles are removed and survived ticks drive bounded speed', (
   const game: Game = { ...newGame(), phase: 'running', ticks: 10000, obstacles: [{ x: 40, width: 1, height: 1, label: 'BUG' }, { x: -2, width: 1, height: 1, label: 'BUG' }] }
   const next = step(game)
   expect(next.obstacles).toHaveLength(1)
-  expect(next.obstacles[0]?.x).toBeCloseTo(38.8)
+  expect(Math.abs(next.obstacles[0]!.x - 38.8)).toBeLessThan(0.000001)
   expect(next.ticks).toBe(10001)
 })
 
