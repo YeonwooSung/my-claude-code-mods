@@ -149,10 +149,12 @@ Node 코어 테스트는 Node 22.19.0 이상과 기존 loader를 사용한다. �
 ## 8. 최종 검증 기록 (2026-10-14)
 
 - 사용자 지시에 따라 main에서 단위별 커밋을 유지했다. 일시 생성한 로컬 `feat/pin-memo`는 커밋을 main에 보존한 뒤 삭제했다.
-- `npm test`: 246/246 통과.
-- Claude Code 2.1.292 `npm run test:adapters`: 305/305 통과 (Pin Memo 29/29).
+- `npm test`: 284/284 통과.
+- Claude Code 2.1.292 `npm run test:adapters`: 361/361 통과 (Pin Memo 29/29).
 - `npm run typecheck`, `plugin validate pin-memo`, `git diff --check`: 통과.
 - Marketplace 검증: 통과; 기존 marketplace description 누락 경고 1개.
 - 독립 리뷰 후 새 identity 실패/이전 응답 경합, 이전 화면 체크 콜백의 세대 검증, POSIX 경로의 백슬래시 보존, 보조 평면 Unicode 폭을 회귀 테스트로 수정했다.
 - 저장 로드 중 추가, lifecycle 반환·오류 보존도 검증했다.
 - 실제 터미널·Desktop 픽셀 캡처 검증은 수행하지 않았다. 렌더 트리·Button press 검증 결과와 구분한다.
+
+- main에 model-effort-band가 통합된 뒤 최신 테스트 실행기 기준으로 전체 검증을 다시 수행했다. 위 전체 테스트 수는 해당 통합을 포함하며 Pin Memo 자체는 엔진 29/29다.
