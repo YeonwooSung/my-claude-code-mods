@@ -22,6 +22,7 @@ async function refresh($: EngineInterface, state: AdapterState): Promise<{ contr
     return { controller: state.controller, key }
   } catch (error) {
     if (request >= state.appliedRequest) {
+      state.appliedRequest = request
       state.controller?.detach()
       state.identityError = '세션 폴더와 ID를 확인할 수 없습니다.'
     }
@@ -75,7 +76,7 @@ export const register: Register = on => {
       const check = async (id: number) => {
         try {
           const current = await refresh($, state)
-          await current.controller.run(`toggle ${id}`, snapshot?.key)
+          await current.controller.run(`toggle ${id}`, snapshot?.key, snapshot?.generation)
         } catch (error) { notify($, error) }
         paint($)
       }

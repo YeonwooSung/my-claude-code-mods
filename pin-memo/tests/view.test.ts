@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { buildView, cellWidth } from '../hooks/core/view.ts'
+import { buildView, cellWidth, fit } from '../hooks/core/view.ts'
 import { emptyDocument, execute } from '../hooks/core/memo.ts'
 
 const doc = execute(execute(emptyDocument(), '한글\n긴 내용 😀😀').document, '[x] done').document
@@ -34,4 +34,11 @@ test('handles wide graphemes, combined characters and many items without droppin
   let many = emptyDocument()
   for (let i = 0; i < 100; i++) many = execute(many, `item ${i}`).document
   expect(buildView(many, undefined, 60, 5)?.rows.length).toBe(100)
+})
+
+// Literal cell budgets catch omissions in the width helper itself.
+test('supplementary East Asian wide characters never exceed literal truncation budgets', () => {
+  for (const ch of ['𛀀', '𛀁', '𖿠', '𗀀']) expect(cellWidth(ch)).toBe(2)
+  expect(fit('𛀀a', 2)).toBe('…')
+  expect(fit('𛀀a', 3)).toBe('𛀀a')
 })

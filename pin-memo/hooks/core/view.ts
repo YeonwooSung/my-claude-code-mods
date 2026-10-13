@@ -21,6 +21,9 @@ function clusterWidth(ch: string): number {
       || (p >= 0x2e80 && p <= 0xa4cf && p !== 0x303f) || (p >= 0xac00 && p <= 0xd7a3)
       || (p >= 0xf900 && p <= 0xfaff) || (p >= 0xfe10 && p <= 0xfe6f)
       || (p >= 0xff00 && p <= 0xff60) || (p >= 0xffe0 && p <= 0xffe6)
+      || (p >= 0x16fe0 && p <= 0x16fe4) || (p >= 0x16ff0 && p <= 0x16ff6)
+      || (p >= 0x17000 && p <= 0x18dff) || (p >= 0x1aff0 && p <= 0x1afff)
+      || (p >= 0x1b000 && p <= 0x1b2ff) || (p >= 0x1f200 && p <= 0x1f251)
       || (p >= 0x20000 && p <= 0x3fffd)) ? 2 : 1
   }
   return width

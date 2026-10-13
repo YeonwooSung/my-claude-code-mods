@@ -1,14 +1,17 @@
 import { decodeDocument, emptyDocument, execute, type MemoDocument, type CommandResult } from './memo.ts'
 export type Storage = { get(key: string): Promise<unknown>; set(key: string, value: unknown): Promise<void> }
-type Context = { key: string; ready: Promise<void>; tail: Promise<void>; document?: MemoDocument; error?: string }
+type Context = { key: string; generation: number; ready: Promise<void>; tail: Promise<void>; document?: MemoDocument; error?: string }
 
 export function storeKey(cwd: string, id: string): string {
   if (!cwd || !id || !/^(?:\/|[A-Za-z]:[\\/])/.test(cwd)) throw new Error('세션 폴더와 ID를 확인할 수 없습니다.')
-  return `pin-memo:v1:${JSON.stringify([cwd.replace(/[\\/]+$/, '') || '/', id])}`
+  const folder = cwd.startsWith('/') ? cwd.replace(/\/+$/, '') || '/'
+    : /^[A-Za-z]:[\\/]$/.test(cwd) ? cwd : cwd.replace(/[\\/]+$/, '')
+  return `pin-memo:v1:${JSON.stringify([folder, id])}`
 }
 
 export class MemoController {
   private current?: Context
+  private generation = 0
   private pending = new Map<string, Promise<void>>()
   constructor(private readonly store: Storage) {}
 
@@ -18,7 +21,7 @@ export class MemoController {
     if (this.current?.key === key && this.current.document) return this.current.ready
     if (this.current?.key === key && !this.current.error) return this.current.ready
     const prior = this.pending.get(key) ?? Promise.resolve()
-    const ctx: Context = { key, ready: Promise.resolve(), tail: Promise.resolve() }
+    const ctx: Context = { key, generation: ++this.generation, ready: Promise.resolve(), tail: Promise.resolve() }
     this.current = ctx
     ctx.ready = (async () => {
       await prior
@@ -30,14 +33,14 @@ export class MemoController {
 
   detach(): void { this.current = undefined }
 
-  snapshot(): { key?: string; document?: MemoDocument; error?: string } {
+  snapshot(): { key?: string; generation?: number; document?: MemoDocument; error?: string } {
     const ctx = this.current
-    return ctx ? { key: ctx.key, document: ctx.document ? decodeDocument(ctx.document) : undefined, error: ctx.error } : {}
+    return ctx ? { key: ctx.key, generation: ctx.generation, document: ctx.document ? decodeDocument(ctx.document) : undefined, error: ctx.error } : {}
   }
 
-  async run(args: string, expectedKey?: string): Promise<CommandResult> {
+  async run(args: string, expectedKey?: string, expectedGeneration?: number): Promise<CommandResult> {
     const ctx = this.current
-    if (!ctx || (expectedKey !== undefined && ctx.key !== expectedKey)) throw new Error('세션이 바뀌었습니다. 현재 메모 화면에서 다시 실행하세요.')
+    if (!ctx || (expectedKey !== undefined && ctx.key !== expectedKey) || (expectedGeneration !== undefined && ctx.generation !== expectedGeneration)) throw new Error('세션이 바뀌었습니다. 현재 메모 화면에서 다시 실행하세요.')
     const work = ctx.tail.then(async () => {
       await ctx.ready
       if (this.current !== ctx) throw new Error('세션이 바뀌었습니다. 현재 메모 화면에서 다시 실행하세요.')

@@ -3,7 +3,7 @@ import { test, expect } from 'claude-code/testing'
 
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 60, scroll: { offset: 0, bodyRows: 9 }, view: {} }
 const START = { cwd: '/repo', surface: 'terminal' as const, isInteractive: true }
-function environment(on: On, options: { id?: () => string; failWrite?: () => boolean; failInvalidate?: boolean; other?: boolean } = {}) {
+function environment(on: On, options: { id?: () => string | Promise<string>; failWrite?: () => boolean; failInvalidate?: boolean; other?: boolean } = {}) {
   const data = new Map<string, unknown>()
   on('store.get', (_$, e) => ({ value: data.get(e.key) }))
   on('store.set', (_$, e) => {
@@ -11,7 +11,7 @@ function environment(on: On, options: { id?: () => string; failWrite?: () => boo
     data.set(e.key, JSON.parse(JSON.stringify(e.value)))
     return { value: undefined }
   })
-  on('session.id', () => ({ value: options.id?.() ?? 's' }))
+  on('session.id', async () => ({ value: await (options.id?.() ?? 's') }))
   on('session.cwd', () => ({ value: '/repo' }))
   on('ui.invalidate', () => { if (options.failInvalidate) throw new Error('no UI'); return { value: undefined } })
   on('session.start', () => ({ cwd: '/repo' }))
@@ -138,4 +138,64 @@ test('a damaged saved document is shown as an error and cleared only explicitly'
   expect(value).toEqual({ version: 1, nextId: 1, items: [] })
   await ui.redraw()
   expect(await ui.find({ key: 'pin-memo' })).toBeUndefined()
+})
+
+test('a newer failed identity query invalidates an older delayed successful query', async ($, on) => {
+  let mode: 'normal' | 'slow' | 'fail' = 'normal'
+  let finish!: (id: string) => void
+  let began!: () => void
+  const started = new Promise<void>(resolve => { began = resolve })
+  const slow = new Promise<string>(resolve => { finish = resolve })
+  environment(on, { id: () => {
+    if (mode === 'fail') throw new Error('identity unavailable')
+    if (mode === 'slow') { began(); return slow }
+    return 's'
+  } })
+  await $.session.start(START)
+  await $.command.run({ command: 'pin', args: 'private old note' } as never)
+  mode = 'slow'
+  const older = $.command.run({ command: 'pin', args: 'list' } as never)
+  await started
+  mode = 'fail'
+  expect((await $.command.run({ command: 'pin', args: 'list' } as never)).text).toContain('확인')
+  finish('s')
+  expect((await older).text).not.toContain('private old note')
+  const ui = await $.ui.mount({ plugin: 'pin-memo', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(await ui.find({ text: /private old note/ })).toBeUndefined()
+})
+
+test('expired checkbox handles stay invalid after returning to their original identity', async ($, on) => {
+  let id = 'old'
+  environment(on, { id: () => id })
+  on('ui.toast', () => ({ value: undefined }))
+  await $.session.start(START)
+  await $.command.run({ command: 'pin', args: '[ ] task' } as never)
+  const ui = await $.ui.mount({ plugin: 'pin-memo', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  id = 'new'
+  await $.command.run({ command: 'pin', args: 'list' } as never)
+  id = 'old'
+  await $.command.run({ command: 'pin', args: 'list' } as never)
+  await ui.press({ key: 'pin-check-1' })
+  expect((await $.command.run({ command: 'pin', args: 'list' } as never)).text).toContain('[ ]')
+})
+
+test('turn lifecycle observations preserve downstream inputs and answers', async ($, on) => {
+  environment(on)
+  let calls = 0
+  on('turn.start', (_$, e) => { calls++; expect(e.text).toBe('unchanged prompt'); return { turnId: e.turnId } })
+  await $.session.start(START)
+  expect(await $.turn.start({ text: 'unchanged prompt', turnId: 't1' })).toEqual({ turnId: 't1' })
+  expect(calls).toBe(1)
+})
+
+test('downstream lifecycle errors propagate without a second execution', async ($, on) => {
+  environment(on)
+  let turns = 0, ends = 0
+  on('turn.start', () => { turns++; throw new Error('downstream failed') })
+  on('session.end', () => { ends++; throw new Error('downstream failed') })
+  await $.session.start(START)
+  await expect($.turn.start({ text: 'test', turnId: 't1' })).rejects.toThrow()
+  await expect($.session.end({ reason: 'clear', sessionId: 'old', resume: { id: 'old' } } as never)).rejects.toThrow()
+  expect(turns).toBe(1)
+  expect(ends).toBe(1)
 })

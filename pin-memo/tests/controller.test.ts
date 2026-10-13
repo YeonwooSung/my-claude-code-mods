@@ -122,3 +122,8 @@ test('an add arriving during a successful load preserves previously saved notes'
   await adding
   expect(c.snapshot().document?.items).toEqual([{ id: 1, text: 'first', checked: null }, { id: 2, text: 'second', checked: null }])
 })
+
+test('distinct POSIX folder names ending in a backslash do not share persistence keys', () => {
+  expect(storeKey('/repo\\', 's')).not.toBe(storeKey('/repo', 's'))
+  expect(storeKey('/', 's')).toBe('pin-memo:v1:["/","s"]')
+})
