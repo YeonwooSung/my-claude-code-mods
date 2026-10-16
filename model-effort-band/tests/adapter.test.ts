@@ -39,9 +39,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
 test('yields the entire render site to surveys and empty sites', async ($, on) => {
   setup(on)
-  expect(await $.ui.render(renderInput(95, 10, true))).toEqual(OTHER)
-  expect(await $.ui.render(renderInput(0, 10))).toEqual(OTHER)
-  expect(await $.ui.render(renderInput(95, 0))).toEqual(OTHER)
+  for (const input of [renderInput(95, 10, true), renderInput(0, 10), renderInput(95, 0)]) {
+    const tree = await $.ui.render(input)
+    // Newer engines stamp ownership metadata; the mod must preserve the actual node.
+    expect(tree.type).toBe('Text')
+    expect('props' in tree ? tree.props : undefined).toEqual({})
+    expect('children' in tree ? tree.children : undefined).toEqual(['other-mod'])
+  }
 })
 
 test('compacts narrow sites and uses one unbordered line when rows are limited', async ($, on) => {
