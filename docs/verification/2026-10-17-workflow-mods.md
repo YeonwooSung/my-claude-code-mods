@@ -29,3 +29,6 @@ RED: missing command retention/replay feature reproduced. GREEN: 3 core tests, 6
 
 ## 7. Env Doctor
 RED: missing version/presence inspection reproduced. GREEN: 3 core tests, 5 engine tests, TypeScript/manifest clean; full suite 363/363. Conservative semver subset, unavailable tools/malformed manifests, environment presence privacy and session-isolated required names verified.
+
+## 8. Dependency Lens
+RED: missing manifest/lock comparison reproduced. GREEN: 3 core tests, 5 engine tests, TypeScript/manifest clean; full suite 366/366. Direct/transitive/scoped/removal/lifecycle changes, unsupported locks, malformed evidence and explicit base selection verified.

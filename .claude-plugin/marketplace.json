@@ -73,6 +73,11 @@
       "name": "env-doctor",
       "source": "./env-doctor",
       "description": "Env Doctor"
+    },
+    {
+      "name": "dependency-lens",
+      "source": "./dependency-lens",
+      "description": "Dependency Lens"
     }
   ]
 }

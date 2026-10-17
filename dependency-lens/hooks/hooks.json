@@ -1,0 +1,6 @@
+{
+  "description": "Dependency Lens hooks module",
+  "modules": [
+    "./register.ts"
+  ]
+}
