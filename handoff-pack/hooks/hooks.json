@@ -1,0 +1,6 @@
+{
+  "description": "Handoff Pack hooks module",
+  "modules": [
+    "./register.ts"
+  ]
+}

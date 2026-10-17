@@ -20,3 +20,6 @@ RED: missing reverse-dependency feature reproduced. GREEN: 3 core tests, 5 engin
 
 ## 4. Decision Ledger
 RED: missing decision feature reproduced; JSON leaf-sanitization regression then failed with `safeData is not a function`. GREEN: 4 core tests, 6 engine tests, TypeScript/manifest clean; full suite 354/354. Shared persistence now sanitizes string leaves before serialization to preserve JSON syntax.
+
+## 5. Handoff Pack
+RED: missing handoff feature reproduced. GREEN: 3 core tests, 5 engine tests, TypeScript and manifest clean; full suite 357/357. Preview combines explicit goal/tasks/notes, live changed files and revision-aware observed checks, plus bounded masked failure history.

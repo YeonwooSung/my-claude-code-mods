@@ -58,6 +58,11 @@
       "name": "decision-ledger",
       "source": "./decision-ledger",
       "description": "Decision Ledger"
+    },
+    {
+      "name": "handoff-pack",
+      "source": "./handoff-pack",
+      "description": "Handoff Pack"
     }
   ]
 }
