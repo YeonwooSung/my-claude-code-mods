@@ -31,3 +31,5 @@ npm test
 Snapshots include HEAD, tracked binary diffs and up to 200 untracked files (2 MiB total). Missing evidence stays UNKNOWN. Only an explicit conservative list of check commands is recognized; this is not a coverage guarantee.
 
 Local preview before marketplace publication: `claude --plugin-dir ./verify-board` from this checkout. Engine tests were run with Claude Code 2.1.302.
+
+Evidence boundary: dirty submodules and symlink snapshot/review targets remain unknown/incomplete; symlink targets are not read. Verification signatures include the staged index separately from working changes. Ignored files remain outside Git-based evidence.

@@ -33,3 +33,5 @@ Development: `npm test`, `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test
 Markdown preview returned in the command result, with no automatic file write or external transfer. Up to 200 tasks, notes, failures and latest checks. Current changes are queried from Git; missing evidence is labelled incomplete. Run from repository root for changed-file paths.
 
 Local preview before marketplace publication: `claude --plugin-dir ./handoff-pack` from this checkout. Engine tests were run with Claude Code 2.1.302.
+
+Evidence boundary: dirty submodules and symlink snapshot/review targets remain unknown/incomplete; symlink targets are not read. Verification signatures include the staged index separately from working changes. Ignored files remain outside Git-based evidence.

@@ -17,10 +17,10 @@
 
 ## Task 2 — Real Git and shared evidence
 
-- [ ] Extend actual temporary-Git tests for rename/deletion, binary content, submodule/working-tree evidence, incomplete snapshots and exact filenames.
-- [ ] Add conservative outcome/path/masking cases to runtime tests.
-- [ ] Reproduce any false confidence, make the smallest fix, sync standalone copies, and verify.
-- [ ] Commit Git/evidence regressions and fixes.
+- [x] Extend actual temporary-Git tests for rename/deletion, binary content, submodule/working-tree evidence, incomplete snapshots and exact filenames.
+- [x] Add conservative outcome/path/masking cases to runtime tests.
+- [x] Reproduce any false confidence, make the smallest fix, sync standalone copies, and verify.
+- [x] Commit Git/evidence regressions and fixes.
 
 ## Task 3 — Adapter lifecycle and combined operation
 

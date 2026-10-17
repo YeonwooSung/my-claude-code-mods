@@ -5,6 +5,9 @@ async function signature(io: Port, path: string): Promise<string | undefined> {
   try {
     const staged = await git(io, ['diff', '--no-ext-diff', '--no-textconv', '--binary', '--cached', 'HEAD', '--', path])
     const unstaged = await git(io, ['diff', '--no-ext-diff', '--no-textconv', '--binary', '--', path])
+    if (io.stat) {
+      try { if ((await io.stat(`${io.cwd}/${path}`)).isLink) return undefined } catch { /* Deleted files can still have complete diff evidence. */ }
+    }
     let body: string | undefined
     try { body = await (io.bytes ?? io.read)(`${io.cwd}/${path}`); if (body.length > 2 * 1024 * 1024) return undefined } catch { /* Deleted files have complete binary diff evidence. */ }
     if (body === undefined && !staged && !unstaged) return undefined

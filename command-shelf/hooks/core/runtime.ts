@@ -4,6 +4,7 @@ export type Port = {
   cwd: string
   read(path: string): Promise<string>
   bytes?(path: string): Promise<string>
+  stat?(path: string): Promise<{ isLink: boolean }>
   list?(path: string): Promise<string[]>
   run(argv: readonly string[]): Promise<ProcessResult>
   env(name: string): Promise<string | undefined>
@@ -16,7 +17,10 @@ export function safeText(v: unknown, limit = 4000): string {
   const text = String(v ?? '').replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '')
   // Some masking patterns backtrack on very long words. Omit an oversized line whole:
   // cutting it first could expose an unterminated quoted secret.
-  return text.split('\n').map(line => line.length > 8192 ? '[OMITTED: oversized line]' : redactSecrets(line)).join('\n').slice(0, limit)
+  const lines = text.split('\n')
+  // Dropping a credential's opening line could expose its quoted continuation.
+  if (lines.some(line => line.length > 8192 && /password|passwd|pwd|token|key|secret|authorization|credential|cookie/i.test(line))) return '[OMITTED: oversized sensitive value]'
+  return redactSecrets(lines.map(line => line.length > 8192 ? '[OMITTED: oversized line]' : line).join('\n')).slice(0, limit)
 }
 export function hash(text: string): string {
   return [0, 0x9747b28c].map(seed => {
@@ -36,7 +40,9 @@ export function relativePath(root: string, path: string): string | undefined {
   }
   const base = normalize(root); if (base === undefined) return undefined
   const full = normalize(path.startsWith('/') ? path : `${root}/${path}`)
-  if (full === undefined || !(full === base || full.startsWith(base + '/'))) return undefined
+  if (full === undefined) return undefined
+  if (base === '') return root.startsWith('/') ? full : undefined
+  if (!(full === base || full.startsWith(base + '/'))) return undefined
   return full.slice(base.length).replace(/^\//, '')
 }
 export function changedPaths(status: string): string[] {
@@ -57,17 +63,19 @@ export async function git(io: Port, args: string[]): Promise<string> {
 export async function statusPaths(io: Port): Promise<string[]> { return changedPaths(await git(io, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])) }
 export async function revision(io: Port): Promise<string | undefined> {
   try {
-    const root = (await git(io, ['rev-parse', '--show-toplevel'])).trim()
+    const root = (await git(io, ['rev-parse', '--show-toplevel'])).replace(/\n$/, '')
     if (!root.startsWith('/')) return undefined
     const repo = { ...io, cwd: root }
     const head = await git(repo, ['rev-parse', '--verify', 'HEAD'])
-    const diff = await git(repo, ['diff', '--no-ext-diff', '--no-textconv', '--binary', 'HEAD', '--'])
-    const status = await git(repo, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
+    const diff = await git(repo, ['diff', '--no-ext-diff', '--no-textconv', '--binary', '--ignore-submodules=none', 'HEAD', '--'])
+    const staged = await git(repo, ['diff', '--no-ext-diff', '--no-textconv', '--binary', '--ignore-submodules=none', '--cached', 'HEAD', '--'])
+    if (/^\+Subproject commit [a-f0-9]+-dirty$/m.test(diff) || /^\+Subproject commit [a-f0-9]+-dirty$/m.test(staged)) return undefined
+    const status = await git(repo, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'])
     const paths = (await git(repo, ['ls-files', '--others', '--exclude-standard', '-z'])).split('\0').filter(Boolean).sort()
     if (paths.length > 200) return undefined
-    const bodies: string[] = [head, diff, status]; let size = diff.length + status.length
+    const bodies: string[] = [head, diff, staged, status]; let size = diff.length + staged.length + status.length
     for (const path of paths) {
-      if (relativePath(root, path) !== path) return undefined
+      if (relativePath(root, path) !== path || (io.stat && (await io.stat(`${root}/${path}`)).isLink)) return undefined
       const body = await (io.bytes ?? io.read)(`${root}/${path}`); size += body.length
       if (size > 2 * 1024 * 1024) return undefined
       bodies.push(path, body)

@@ -45,3 +45,9 @@ test('removed and evicted commands cannot be replayed and ids are never reused',
   await f.observe(event('echo next'), io)
   expect(await f.command('show 202', io)).toContain('echo next')
 })
+test('multiline quoted secrets are excluded from replay retention', async () => {
+  const f = new Feature()
+  await f.observe(event('API_TOKEN="FAKE_FIRST\nFAKE_SECOND" node app.js'), io)
+  expect(f.data.commands).toHaveLength(0)
+  expect(JSON.stringify(f.data)).not.toContain('FAKE_FIRST')
+})

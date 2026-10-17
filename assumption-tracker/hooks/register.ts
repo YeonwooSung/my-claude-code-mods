@@ -15,6 +15,7 @@ const port = async ($: EngineInterface): Promise<Port> => {
     cwd,
     read: async path => await $.fs.read(path),
     bytes: async path => (await $.fs.read(path, { as: 'bytes' })).base64,
+    stat: path => $.fs.stat(path),
     list: async path => (await $.fs.list(path)).map(entry => entry.name),
     run: argv => $.process.run(argv, { cwd, timeoutMs: 10_000 }),
     env: async key => {

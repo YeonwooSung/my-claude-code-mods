@@ -32,3 +32,5 @@ Development: `npm test`, `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test
 File-level groups, not hunk groups. Up to 200 changed files. Both staged and unstaged diffs and binary working content contribute to review signatures. Missing evidence cannot become REVIEWED. Run from repository root.
 
 Local preview before marketplace publication: `claude --plugin-dir ./review-queue` from this checkout. Engine tests were run with Claude Code 2.1.302.
+
+Evidence boundary: dirty submodules and symlink snapshot/review targets remain unknown/incomplete; symlink targets are not read. Verification signatures include the staged index separately from working changes. Ignored files remain outside Git-based evidence.

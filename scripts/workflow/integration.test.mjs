@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, writeFile, rm, mkdir } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile, rm, mkdir, lstat, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -10,9 +10,11 @@ import { Feature as Review } from '../../review-queue/hooks/core/feature.ts'
 import { Feature as Deps } from '../../dependency-lens/hooks/core/feature.ts'
 import { register as registerShelf } from '../../command-shelf/hooks/register.ts'
 import { register as registerDecision } from '../../decision-ledger/hooks/register.ts'
-async function repository(t) {
-  const cwd = await mkdtemp(join(tmpdir(), 'workflow-mods-'))
-  t.after(() => rm(cwd, { recursive: true, force: true }))
+async function repository(t, directory) {
+  const temporary = await mkdtemp(join(tmpdir(), 'workflow-mods-'))
+  const cwd = directory ? join(temporary, directory) : temporary
+  if (directory) await mkdir(cwd)
+  t.after(() => rm(temporary, { recursive: true, force: true }))
   const run = async argv => {
     const r = spawnSync(argv[0], argv.slice(1), { cwd, encoding: 'utf8', timeout: 10_000 })
     if (r.error) throw r.error
@@ -20,7 +22,7 @@ async function repository(t) {
   }
   const git = async (...args) => { const r = await run(['git', ...args]); assert.equal(r.exitCode, 0, r.stderr); return r.stdout.trim() }
   await git('init', '-q'); await git('config', 'user.name', 'Workflow Test'); await git('config', 'user.email', 'workflow@example.invalid')
-  const io = { cwd, read: path => readFile(path, 'utf8'), bytes: async path => (await readFile(path)).toString('base64'), run, env: async () => undefined, revision: () => revision(io) }
+  const io = { cwd, stat: async path => ({ isLink: (await lstat(path)).isSymbolicLink() }), read: path => readFile(path, 'utf8'), bytes: async path => (await readFile(path)).toString('base64'), run, env: async () => undefined, revision: () => revision(io) }
   return { cwd, io, git, write: (path, body) => writeFile(join(cwd, path), body) }
 }
 test('verification becomes stale after switching between distinct clean commits', async t => {
@@ -99,4 +101,70 @@ test('subdirectory verification includes untracked changes elsewhere in the same
   const sub = { ...r.io, cwd: join(r.cwd, 'sub') }; sub.revision = () => revision(sub)
   await r.write('asset.bin', Buffer.from([1])); const before = await sub.revision()
   await r.write('asset.bin', Buffer.from([2])); assert.notEqual(await sub.revision(), before)
+})
+
+test('different staged source is detected even when the working file is restored to HEAD', async t => {
+  const r = await repository(t)
+  await r.write('a.ts', 'base'); await r.git('add', '.'); await r.git('commit', '-qm', 'base')
+  await r.write('a.ts', 'staged-one'); await r.git('add', 'a.ts'); await r.write('a.ts', 'base')
+  const first = await r.io.revision(); assert.ok(first)
+  await r.write('a.ts', 'staged-two'); await r.git('add', 'a.ts'); await r.write('a.ts', 'base')
+  assert.notEqual(await r.io.revision(), first)
+})
+test('dirty submodule content is unknown rather than a reusable revision signature', async t => {
+  const r = await repository(t), nested = join(r.cwd, 'nested')
+  await mkdir(nested)
+  for (const args of [['init', '-q'], ['config', 'user.name', 'Nested Test'], ['config', 'user.email', 'nested@example.invalid']]) assert.equal((await r.io.run(['git', '-C', nested, ...args])).exitCode, 0)
+  await writeFile(join(nested, 'a.ts'), 'base')
+  for (const args of [['add', '.'], ['commit', '-qm', 'nested base']]) assert.equal((await r.io.run(['git', '-C', nested, ...args])).exitCode, 0)
+  await r.git('add', 'nested'); await r.git('commit', '-qm', 'parent base')
+  assert.ok(await r.io.revision())
+  await writeFile(join(nested, 'a.ts'), 'dirty')
+  assert.equal(await r.io.revision(), undefined)
+})
+test('repository paths ending in a space retain their exact identity', async t => {
+  const r = await repository(t, "owner's project ")
+  await r.write('a.ts', 'base'); await r.git('add', '.'); await r.git('commit', '-qm', 'base')
+  const first = await r.io.revision(); assert.ok(first)
+  await r.write('a.ts', 'changed'); assert.notEqual(await r.io.revision(), first)
+})
+test('untracked symlinks do not cause snapshot or review reads outside the repository', async t => {
+  const r = await repository(t)
+  await r.write('a.ts', 'base'); await r.git('add', '.'); await r.git('commit', '-qm', 'base')
+  const outside = await mkdtemp(join(tmpdir(), 'workflow-outside-')); t.after(() => rm(outside, { recursive: true, force: true }))
+  await writeFile(join(outside, 'private'), 'PRIVATE_FIXTURE')
+  await symlink(join(outside, 'private'), join(r.cwd, 'linked'))
+  let reads = 0
+  const port = { ...r.io, bytes: async path => { if (path.endsWith('/linked')) reads++; return r.io.bytes(path) } }; port.revision = () => revision(port)
+  assert.equal(await port.revision(), undefined)
+  assert.match(await new Review().command('mark linked', port), /INCOMPLETE/)
+  assert.equal(reads, 0)
+})
+test('real rename and deletion reviews retain exact spaced paths', async t => {
+  const r = await repository(t)
+  await r.write('old  name.ts', 'base'); await r.git('add', '.'); await r.git('commit', '-qm', 'base')
+  await r.git('mv', 'old  name.ts', 'new  name.ts')
+  const f = new Review()
+  assert.match(await f.command('mark old  name.ts', r.io), /REVIEWED old  name.ts/)
+  assert.match(await f.command('mark new  name.ts', r.io), /REVIEWED new  name.ts/)
+  await r.write('new  name.ts', 'changed')
+  assert.match(await f.command('', r.io), /STALE new  name.ts/)
+  await r.git('rm', '-f', 'new  name.ts')
+  assert.match(await f.command('mark old  name.ts', r.io), /REVIEWED old  name.ts/)
+})
+test('ignored secret files are excluded from snapshot reads', async t => {
+  const r = await repository(t)
+  await r.write('.gitignore', '.env\n'); await r.git('add', '.gitignore'); await r.git('commit', '-qm', 'ignore local env')
+  await r.write('.env', 'API_TOKEN=FIRST_FAKE')
+  const port = { ...r.io, bytes: async path => { assert.ok(!path.endsWith('/.env')); return r.io.bytes(path) } }
+  const before = await revision(port); await r.write('.env', 'API_TOKEN=SECOND_FAKE')
+  assert.equal(await revision(port), before)
+})
+test('snapshot count limits reject evidence before reading excess untracked files', async t => {
+  const r = await repository(t)
+  await r.write('base', 'base'); await r.git('add', '.'); await r.git('commit', '-qm', 'base')
+  await Promise.all(Array.from({ length: 201 }, (_, i) => r.write(`new-${i}`, 'body')))
+  let reads = 0
+  assert.equal(await revision({ ...r.io, bytes: async () => { reads++; return '' } }), undefined)
+  assert.equal(reads, 0)
 })
