@@ -53,7 +53,7 @@ Claude Code 2.1.287 이상(mods 기본 활성화). 그보다 오래된 빌드는
 ## 내보내기 형식
 
 한 줄에 JSON 하나: `meta`, `item`(seq, ctx, turn, door, category, target, chars, est, hash, simhash, born, epoch, live …), `edit`, `sample`, `compaction`, `summary`.
-원문은 없다. 파일 외 대상(명령·패턴·URL·에이전트 설명)은 알려진 비밀값 형식을 마스킹한 후 200자로 자른다. 비밀값 환경변수 할당, Authorization/Bearer 인증정보, `--password`·`--token`·`--api-key`·`--secret` 옵션, `-key`·`-token`·`-secret`으로 끝나는 헤더, URL 비밀번호, curl `-u`·`--user` 인증정보, mysql `-p` 비밀번호를 마스킹한다. 파일 경로는 그대로 남는다. 모든 비밀값을 탐지하는 것은 아니므로 공유 전에 내보내기 파일을 검토해야 한다. 업데이트해도 기존 내보내기 파일은 소급 마스킹되지 않는다. 이전 파일을 검토하거나 삭제하고, 실제 인증정보가 노출됐다면 교체해야 한다.
+원문은 없다. 파일 외 대상(명령·패턴·URL·에이전트 설명)은 알려진 비밀값 형식을 마스킹한 후 200자로 자른다. 비밀값 환경변수 할당, Authorization/Bearer 인증정보, `--password`·`--token`·`--api-key`·`--secret` 옵션, `-key`·`-token`·`-secret`으로 끝나는 헤더, URL 비밀번호, curl `-u`·`--user` 인증정보, mysql `-p` 비밀번호와 JSON의 일반적인 자격증명 필드를 마스킹한다. 셸 따옴표로 감싼 헤더의 이스케이프된 따옴표는 값의 일부로 처리한다. 파일 경로는 그대로 남는다. 모든 비밀값을 탐지하는 것은 아니므로 공유 전에 내보내기 파일을 검토해야 한다. 업데이트해도 기존 내보내기 파일은 소급 마스킹되지 않는다. 이전 파일을 검토하거나 삭제하고, 실제 인증정보가 노출됐다면 교체해야 한다.
 컴팩션 엔티티 중 오류와 사용자 식별자, 그리고 항목 내용은 해시(솔트 없음, 짧은 값은 추측으로 확인 가능)로만 남는다 — 익명화가 아니다.
 `summary`에는 `wasteEst`(지금 창), `currentWasteEst`·`sessionRereadEst`(재읽기 낭비: 지금 창 / 세션 누적)가 함께 들어간다.
 

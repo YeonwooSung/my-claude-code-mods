@@ -3,6 +3,8 @@ import { expect, test } from 'claude-code/testing'
 import { redactSecrets } from '../hooks/core/redact.ts'
 
 const cases = [
+  [String.raw`curl -H "x-api-key: FAKE_PREFIX\"FAKE_HEADER_TAIL" https://example.com`, 'curl -H "x-api-key: [REDACTED]" https://example.com'],
+  [`curl -d '{"token":"FAKE_JSON"}' https://example.com`, `curl -d '{"token":[REDACTED]}' https://example.com`],
   ['gh api --token FAKE_tok_123 /user', 'gh api --token [REDACTED] /user'],
   ['run --token=FAKE_tok_123 --verbose', 'run --token=[REDACTED] --verbose'],
   ['run --api-key "FAKE key 456"', 'run --api-key [REDACTED]'],

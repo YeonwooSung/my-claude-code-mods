@@ -1,6 +1,6 @@
 {
   "name": "loop-detective",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Detect repeated Bash failures and edit/retry cycles with evidence, live cases and investigation prompts",
   "author": { "name": "YeonwooSung" },
   "userConfig": {

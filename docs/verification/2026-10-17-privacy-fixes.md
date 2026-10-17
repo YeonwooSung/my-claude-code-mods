@@ -9,3 +9,4 @@
 | 3 | Time Machine 0.1.2: 실패 테스트 이름을 parsing 단계에서 마스킹해 JSONL 우회 방지 | core 330/330, time-machine engine 99/99, TypeScript 및 저장 경로 회귀 검사 통과 |
 | 4 | Agent Profiler 0.1.2 / Time Machine 0.1.3 / Loop Detective 0.1.1: 독립 배포용 redactor 복사본 동기화, 자격증명 옵션·URL·JSON 문자열 처리 및 lossy 판정 보완 | core 331/331, 각 engine 60/100/41 통과, 전체 TypeScript, 공통 corpus 39개 및 privacy 검사 통과 |
 | 5 | Agent Profiler 0.1.3 / Time Machine 0.1.4: 수집·결과 요약·rerun 비교에서 마스킹 후 자르기 적용 | core 333/333, 각 engine 61/101 통과, 전체 TypeScript 및 privacy 검사 통과 |
+| 6 | Context Inspector 0.1.2 / Agent Profiler 0.1.4 / Time Machine 0.1.5 / Loop Detective 0.1.2: shell 헤더의 escaped quote 및 JSON 자격증명 필드 처리, 네 모드 동기화 | core 335/335, 각 engine 101/61/101/41 통과, 전체 TypeScript, 공통 corpus 68개 및 privacy 검사 통과 |
