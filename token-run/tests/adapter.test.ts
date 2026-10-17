@@ -7,7 +7,7 @@ const PANE = {title:'Token Run',isFocused:true,bodyColumns:64,placement:'inline'
 const STEP = {turnId:'t1',index:0,model:'opus',messageCount:1}
 const usage = {input_tokens:1,output_tokens:2,cache_read_input_tokens:0,cache_creation_input_tokens:0,model:'opus'}
 const RESULT: TurnStepResult = {...STEP,answer:'ok',toolUses:[],stopReason:'end_turn',usage}
-function setup(on: On, options: {failRead?:boolean;failWrite?:boolean;failInvalidate?:boolean;failComplete?:()=>void;read?:()=>Promise<unknown>} = {}) {
+function setup(on: On, options: {failRead?:boolean;failWrite?:boolean;failInvalidate?:boolean;failComplete?:()=>void;read?:()=>Promise<unknown>;open?:()=>Promise<void>} = {}) {
   const saved = new Map<string,unknown>()
   const opened: unknown[] = []
   const names: string[] = []
@@ -18,7 +18,7 @@ function setup(on: On, options: {failRead?:boolean;failWrite?:boolean;failInvali
   on('store.get',async(_$,e)=>{if(options.failRead) throw new Error('unreadable');return {value:options.read ? await options.read() : saved.get(e.key)}})
   on('store.set',(_$,e)=>{if(options.failWrite) throw new Error('disk full');saved.set(e.key,e.value);return {value:undefined}})
   on('ui.invalidate',()=>{if(options.failInvalidate) throw new Error('no UI');return {value:undefined}})
-  on('ui.open',(_$,e)=>{opened.push(e);return {value:{isPlaced:true}}})
+  on('ui.open',async(_$,e)=>{opened.push(e);await options.open?.();return {value:{isPlaced:true}}})
   on('ui.close',(_$,e)=>{closed.push(e.id);return {value:undefined}})
   on('ui.render',async($,e)=>$.ui.resolve(e).Box({key:'other-mod',children:$.ui.resolve(e).Text({children:'other mod'})}))
   on('turn.start',(_$,e)=>({turnId:e.turnId}))
@@ -132,12 +132,12 @@ test('modified keys are ignored and repeated redraws do not multiply timers',asy
   expect((await ui.find({key:'run-score',in:'runner'}))?.text).toContain('SCORE 1')
 })
 
-test('focus loss and small region suspend physics and unfocused input is ignored',async($,on)=>{
+test('explicit pause and small region suspend physics',async($,on)=>{
   setup(on);await $.session.start(START);await command($);const ui=await mount($)
   await ui.key({key:' '});await ui.advance(1000)
-  await ui.redraw({...PANE,isFocused:false});await ui.key({key:'r'});await ui.advance(2000)
+  await ui.key({key:'p'});await ui.advance(2000)
   expect((await ui.find({key:'run-score',in:'runner'}))?.text).toContain('SCORE 1')
-  await ui.redraw(PANE);await ui.resize({columns:20,rows:8});await ui.advance(2000)
+  await ui.key({key:'p'});await ui.resize({columns:20,rows:8});await ui.advance(2000)
   expect((await ui.find({key:'run-resize',in:'runner'}))?.text).toContain('Resize')
   await ui.resize({columns:64,rows:8});await ui.advance(1000)
   expect((await ui.find({key:'run-score',in:'runner'}))?.text).toContain('SCORE 2')
@@ -263,4 +263,74 @@ test('Q closes promptly before a blocked best-score write finishes',async($,on)=
   release(undefined)
   await exiting
   expect(closedBeforeRelease).toBe(before+1)
+})
+
+test('a focused Client can jump and animate while the enclosing Pane is unfocused',async($,on)=>{
+  setup(on);await $.session.start(START);await command($)
+  // In the real terminal, focusing Client moves focus away from the Pane ring.
+  // ui.key represents a key already delivered to the focused Client by the engine.
+  const ui=await $.ui.mount({plugin:'token-run',surface:'terminal',component:'Pane',requestId:'token-run',
+    props:{...PANE,isFocused:false},viewport:{columns:64,rows:8}})
+  await ui.key({key:' '});await ui.advance(1000)
+  expect((await ui.find({key:'run-score',in:'runner'}))?.text).toContain('SCORE 1')
+  await ui.key({key:'p'});await ui.advance(1000)
+  expect((await ui.find({key:'run-phase',in:'runner'}))?.text).toContain('PAUSED')
+  expect((await ui.find({key:'run-score',in:'runner'}))?.text).toContain('SCORE 1')
+})
+
+test('track clicks start and jump without double-jumping or treating modified/right clicks as input',async($,on)=>{
+  setup(on);await $.session.start(START);await command($)
+  const ui=await $.ui.mount({plugin:'token-run',surface:'terminal',component:'Pane',requestId:'token-run',
+    props:{...PANE,isFocused:false},viewport:{columns:64,rows:8}})
+  await ui.pointer({type:'down',x:12,y:4,button:'right'})
+  await ui.pointer({type:'down',x:12,y:4,button:'left',ctrl:true})
+  await ui.advance(1000)
+  expect((await ui.find({key:'run-score',in:'runner'}))?.text).toContain('SCORE 0')
+  await ui.pointer({type:'down',x:12,y:4,button:'left'})
+  await ui.pointer({type:'up',x:12,y:4,button:'left'})
+  await ui.advance(50)
+  expect((await ui.find({key:'track-4',in:'runner'}))?.text).toContain('@')
+  for(let n=0;n<20;n++) {
+    await ui.pointer({type:'down',x:12,y:4,button:'left'})
+    await ui.pointer({type:'up',x:12,y:4,button:'left'})
+  }
+  await ui.advance(950)
+  expect((await ui.find({key:'run-score',in:'runner'}))?.text).toContain('SCORE 1')
+})
+
+test('a late refused old Pane open cannot detach a newer game',async($,on)=>{
+  let blocked=true
+  let began!:()=>void
+  let refuse!:(error:Error)=>void
+  const started=new Promise<void>(resolve=>{began=resolve})
+  const pending=new Promise<void>((_resolve,reject)=>{refuse=reject})
+  setup(on,{open:async()=>{if(blocked){began();await pending}}})
+  await $.session.start(START)
+  const old=command($)
+  await started
+  await command($,'close')
+  blocked=false
+  await command($)
+  const ui=await mount($)
+  refuse(new Error('old opening refused'))
+  await old
+  await ui.redraw()
+  expect(await ui.find({key:'runner'})).toBeDefined()
+})
+
+test('a dock-to-inline Client remount restores the paused run and restart checkpoint',async($,on)=>{
+  setup(on);await $.session.start(START);await command($)
+  const ui=await mount($)
+  await ui.key({key:' '});await ui.advance(1000);await ui.key({key:'p'})
+  await ui.unmount()
+  const next=await $.ui.mount({plugin:'token-run',surface:'terminal',component:'Pane',requestId:'token-run',
+    props:{...PANE,bodyColumns:26,isFocused:false},viewport:{columns:26,rows:8}})
+  expect((await next.find({key:'run-phase',in:'runner'}))?.text).toContain('PAUSED')
+  expect((await next.find({key:'run-score',in:'runner'}))?.text).toContain('SCORE 1')
+  await next.advance(2000)
+  expect((await next.find({key:'run-score',in:'runner'}))?.text).toContain('SCORE 1')
+  await next.key({key:'r'});await next.unmount()
+  const reset=await mount($)
+  expect((await reset.find({key:'run-score',in:'runner'}))?.text).toContain('SCORE 0')
+  expect((await reset.find({key:'run-score',in:'runner'}))?.text).toContain('BEST 1')
 })

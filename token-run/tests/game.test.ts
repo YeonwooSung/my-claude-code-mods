@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { newGame, act, step, type Game } from '../hooks/core/game.ts'
+import { newGame, act, step, decodeGame, type Game } from '../hooks/core/game.ts'
 
 function advance(game: Game, ticks: number): Game {
   for (let n = 0; n < ticks; n++) game = step(game)
@@ -71,4 +71,36 @@ test('seeded generation is repeatable, spaced and bounded over long sessions', (
   }
   expect([...seen].sort()).toEqual(['429', 'BUG', 'TIMEOUT'])
   expect(newGame(NaN)).toEqual(newGame(1))
+})
+
+test('checkpoint decoding clones valid games and refuses malformed unbounded data', () => {
+  const paused = act(advance(act(newGame(37), 'jump'), 20), 'pause')
+  const serialized = JSON.parse(JSON.stringify(paused))
+  const decoded = decodeGame(serialized)
+  expect(decoded).toEqual(paused)
+  expect(decoded).not.toBe(serialized)
+  if (decoded) decoded.obstacles.push({x:40,width:1,height:1,label:'BUG'})
+  expect(serialized.obstacles).toHaveLength(1)
+  for (const change of [
+    {ticks:-1}, {ticks:1.5}, {y:Infinity}, {phase:'unknown'}, {phase:['paused']}, {seed:-1},
+    {distance:NaN}, {nextSpawn:Infinity}, {vy:100},
+    {obstacles:Array.from({length:100},()=>({x:40,width:1,height:1,label:'BUG'}))},
+    {obstacles:[{x:40,width:1,height:1,label:'\u001b[2J'}]},
+    {obstacles:[{x:40,width:1,height:1,label:['BUG']}]},
+  ]) expect(decodeGame({...paused,...change})).toBeUndefined()
+  expect(decodeGame(null)).toBeUndefined()
+})
+
+test('reachable seeded courses remain restorable across jumps pauses deaths and restarts', () => {
+  for (const seed of [1, 0, 17, -1, 0xffffffff, Number.MAX_SAFE_INTEGER]) {
+    let game = newGame(seed)
+    for (let tick = 0; tick < 1200; tick++) {
+      if (game.phase === 'over' || tick % 151 === 0) game = act(game, 'restart')
+      if (tick % 67 === 0 || tick % 67 === 3) game = act(game, 'pause')
+      else if (tick % 19 === 0) game = act(game, 'jump')
+      const checkpoint = JSON.parse(JSON.stringify(game))
+      expect(decodeGame(checkpoint)).toEqual(game)
+      game = step(game)
+    }
+  }
 })

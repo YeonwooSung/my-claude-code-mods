@@ -52,3 +52,28 @@ export function step(game: Game): Game {
   }
   return { ...game, phase: hit ? 'over' : 'running', ticks: game.ticks + (hit ? 0 : 1), y, vy, distance, nextSpawn, seed, obstacles }
 }
+
+/** Validate in-memory Client checkpoints at the host boundary; never trust posted data. */
+export function decodeGame(value: unknown): Game | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const g = value as Record<string, unknown>
+  const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n)
+  const uint = (n: unknown): n is number => finite(n) && Number.isSafeInteger(n) && n >= 0
+  if (typeof g.phase !== 'string' || !['ready', 'running', 'paused', 'over'].includes(g.phase)
+    || !uint(g.ticks) || !uint(g.seed) || g.seed > 0xffffffff
+    || !uint(g.initialSeed) || g.initialSeed < 1 || g.initialSeed > 0xffffffff
+    || !finite(g.y) || g.y < 0 || g.y > 4 || !finite(g.vy) || Math.abs(g.vy) > 1
+    || !finite(g.distance) || g.distance < 0 || g.distance > g.ticks * 1.2 + 1
+    || !finite(g.nextSpawn) || g.nextSpawn < g.distance || g.nextSpawn > g.distance + 56
+    || !Array.isArray(g.obstacles) || g.obstacles.length > 3) return undefined
+  const obstacles: Obstacle[] = []
+  for (const item of g.obstacles) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return undefined
+    const o = item as Record<string, unknown>
+    if (!finite(o.x) || o.x < -2 || o.x > WORLD || typeof o.label !== 'string' || !['BUG', '429', 'TIMEOUT'].includes(o.label)
+      || o.width !== (o.label === 'TIMEOUT' ? 2 : 1) || o.height !== 1) return undefined
+    obstacles.push({ x: o.x, width: o.label === 'TIMEOUT' ? 2 : 1, height: 1, label: o.label as Obstacle['label'] })
+  }
+  return { phase: g.phase as Game['phase'], ticks: g.ticks, y: g.y, vy: g.vy,
+    distance: g.distance, nextSpawn: g.nextSpawn, seed: g.seed, initialSeed: g.initialSeed, obstacles }
+}

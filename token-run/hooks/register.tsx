@@ -1,15 +1,16 @@
 import type { EngineInterface, Register } from 'claude-code'
+import { decodeGame, score, type Game } from './core/game.ts'
 import { RequestState, Scores, validScore } from './core/state.ts'
 
 const PANE = 'token-run'
-const HELP = 'Token Run: /token-run | /token-run close | /token-run help\nSpace/Up: start or jump · R: restart · P: pause · Q/Esc: return\nClick the game or use ctrl+x tab to focus. Fully local; no model calls.'
+const HELP = 'Token Run: /token-run | /token-run close | /token-run help\nSpace/Up: start or jump · R: restart · P: pause · Q: close; Esc: return focus (again: close)\nClick the track or Jump to start; Space/Up while Client is focused. P pauses explicitly. Fully local; no model calls.'
 function paint($: EngineInterface): void { try { $.ui.invalidate('ui.render') } catch { /* A failed redraw must not affect a turn. */ } }
 
-type AdapterState = { requests: RequestState; scores?: Scores; supported: boolean; open: boolean; runId: number }
+type AdapterState = { requests: RequestState; scores?: Scores; supported: boolean; open: boolean; runId: number; game?: Game }
 function records($: EngineInterface, state: AdapterState): Scores {
   return state.scores ??= new Scores({ get: key => $.store.get(key), set: (key, value) => $.store.set(key, value) })
 }
-function detach(state: AdapterState): void { state.open = false; state.runId++ }
+function detach(state: AdapterState): void { state.open = false; state.runId++; state.game = undefined }
 async function close($: EngineInterface, state: AdapterState): Promise<void> {
   detach(state); await $.ui.close({ id: PANE }); paint($)
 }
@@ -18,11 +19,16 @@ async function start($: EngineInterface, state: AdapterState): Promise<string> {
   await records($, state).load()
   if (opening !== state.runId || !state.supported) return 'Token Run · 열기 요청이 취소되었습니다.'
   if (!state.open) { state.runId++; state.open = true }
+  const current = state.runId
   try {
     const result = await $.ui.open({ id: PANE, title: 'Token Run', focus: true, closeOnEscape: true, rows: 8, columns: 64 })
+    if (current !== state.runId || !state.open) return 'Token Run · 열기 요청이 취소되었습니다.'
     paint($)
-    return result.isPlaced ? 'Token Run · Space로 시작하세요. Esc로 작업 복귀.' : 'Token Run · 패널을 표시할 공간이 필요해요.'
-  } catch { detach(state); return 'Token Run 패널을 열지 못했어요. /token-run으로 다시 시도하세요.' }
+    return result.isPlaced ? 'Token Run · 트랙 클릭 또는 Jump로 시작. P: 정지 · Q: 닫기.' : 'Token Run · 패널을 표시할 공간이 필요해요.'
+  } catch {
+    if (current === state.runId) detach(state)
+    return 'Token Run 패널을 열지 못했어요. /token-run으로 다시 시도하세요.'
+  }
 }
 export const register: Register = on => {
   const state: AdapterState = { requests: new RequestState(), supported: false, open: false, runId: 0 }
@@ -75,6 +81,9 @@ export const register: Register = on => {
     if (e.component !== 'Pane' || e.requestId !== PANE || !state.open || !data || typeof data !== 'object' || Array.isArray(data)) return {}
     const message = data as Record<string, unknown>
     if (message.runId !== state.runId || !validScore(message.score) || (message.type !== 'score' && message.type !== 'exit')) return {}
+    const checkpoint = message.game === undefined ? undefined : decodeGame(message.game)
+    if (message.game !== undefined && (!checkpoint || score(checkpoint) > message.score)) return {}
+    if (checkpoint) state.game = checkpoint
     const current = state.runId
     const saving = records($, state).save(message.score)
     if (message.type === 'exit' && state.open && current === state.runId) {
@@ -101,6 +110,6 @@ export const register: Register = on => {
     const rows = Number.isFinite(e.props.scroll.bodyRows) ? Math.max(0, Math.min(8, Math.floor(e.props.scroll.bodyRows))) : 0
     return <Box flexDirection="column">{existing}<Client key="runner" module="./game.tsx"
       width={Math.max(1, columns)} height={Math.max(1, rows)}
-      props={{ runId: state.runId, columns, rows, focused: e.props.isFocused, best: record.best, error: record.error ?? '', status: request.status, recovered: request.recovered }} /></Box>
+      props={{ runId: state.runId, columns, rows, checkpoint: state.game ?? null, best: record.best, error: record.error ?? '', status: request.status, recovered: request.recovered }} /></Box>
   })
 }
