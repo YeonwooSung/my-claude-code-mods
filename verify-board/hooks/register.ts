@@ -58,7 +58,7 @@ export const register: Register = on => {
       if (state.replaying) return next(e)
       const identity = await Promise.all([$.session.cwd(), $.session.id()]).catch(() => undefined)
       let before: string | undefined
-      if ((name === 'verify-board' || name === 'handoff-pack') && e.tool === 'Bash') {
+      if (['verify-board', 'handoff-pack'].includes(name) && e.tool === 'Bash') {
         try { before = await (await port($)).revision() } catch { /* Unknown evidence. */ }
       }
       // next runs outside observation catch: an observer never retries a tool or hides its exception.

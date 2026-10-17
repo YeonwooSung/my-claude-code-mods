@@ -13,4 +13,4 @@ RED: missing feature/runtime tests and engine registration failure reproduced. G
 Ruling: The engine statically requires a top-level register function and top-level helpers receiving `$`; generate standalone adapters from a canonical template rather than exporting a register factory. Dynamic environment reads use a Node subprocess returning presence only, because `$.env.get` requires literal names.
 
 ## 2. Scope Guard
-RED: missing scope analysis reproduced. GREEN: 3 core tests, 5 engine tests, TypeScript clean; full suite 347/347. Scope warnings preserve pre-existing changes and both rename paths.
+RED: missing scope analysis reproduced. GREEN: 3 core tests, 5 engine tests; full suite 347/347. Initial typecheck found TS2367 in the generated adapter; fixed in a follow-up commit after fresh typecheck. Scope warnings preserve pre-existing changes and both rename paths.
