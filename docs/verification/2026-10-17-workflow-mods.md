@@ -17,3 +17,6 @@ RED: missing scope analysis reproduced. GREEN: 3 core tests, 5 engine tests; ful
 
 ## 3. Blast Radius
 RED: missing reverse-dependency feature reproduced. GREEN: 3 core tests, 5 engine tests, TypeScript and manifest clean; full suite 350/350. Tests include cycles, indirect test consumers, deleted targets, JS-to-TS and index resolution, unresolved aliases and traversal rejection.
+
+## 4. Decision Ledger
+RED: missing decision feature reproduced; JSON leaf-sanitization regression then failed with `safeData is not a function`. GREEN: 4 core tests, 6 engine tests, TypeScript/manifest clean; full suite 354/354. Shared persistence now sanitizes string leaves before serialization to preserve JSON syntax.

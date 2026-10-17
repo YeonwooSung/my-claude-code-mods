@@ -53,6 +53,11 @@
       "name": "blast-radius",
       "source": "./blast-radius",
       "description": "Blast Radius"
+    },
+    {
+      "name": "decision-ledger",
+      "source": "./decision-ledger",
+      "description": "Decision Ledger"
     }
   ]
 }

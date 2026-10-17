@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { object, revision, safeText, type Observation, type Port } from './core/runtime.ts'
+import { object, revision, safeText, safeData, type Observation, type Port } from './core/runtime.ts'
 export interface Model { data: object; command(args: string, io: Port): Promise<string>; observe?(event: Observation, io: Port): Promise<void> }
 import { Feature } from './core/feature.ts'
 const name = 'verify-board'
@@ -37,7 +37,7 @@ const state: AdapterState = { queue: Promise.resolve(), replaying: false }
       const model = new Feature(raw)
       const result = await fn(model, io)
       // No raw event payloads reach storage. Keep the serialized state bounded.
-      const state = safeText(JSON.stringify(model.data), 256 * 1024 + 1)
+      const state = JSON.stringify(safeData(model.data))
       if (state.length > 256 * 1024) throw new Error('state limit exceeded; not saved')
       try { await $.store.set(key, JSON.parse(state)) }
       catch { throw new Error('state not saved; retry after storage recovers') }

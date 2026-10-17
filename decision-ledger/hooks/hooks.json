@@ -1,0 +1,6 @@
+{
+  "description": "Decision Ledger hooks module",
+  "modules": [
+    "./register.ts"
+  ]
+}

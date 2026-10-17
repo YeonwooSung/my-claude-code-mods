@@ -91,3 +91,10 @@ export function restore<T extends object>(value: unknown, defaults: T): T {
 }
 export const entries = (args: string): string[] => args.split('|').map(s => s.trim())
 export function bounded<T>(items: T[]): T[] { return items.slice(-200) }
+// Clean string leaves before JSON serialization, never regex-rewrite serialized JSON syntax.
+export function safeData(value: unknown): unknown {
+  if (typeof value === 'string') return safeText(value)
+  if (Array.isArray(value)) return value.map(safeData)
+  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, safeData(v)]))
+  return value
+}
