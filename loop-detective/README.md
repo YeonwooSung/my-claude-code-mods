@@ -70,6 +70,9 @@ State stays in memory; no export, automatic file writes, network calls, model ca
 
 Only hashes, counters and bounded display metadata are retained; no prompts, edit bodies or full tool output. Masking is best-effort, and hashes are not anonymization. ANSI/log changes outside the timing rules can create false negatives. Bash/external edits and edits by another agent are not credited to a case. Whole-command fingerprints cannot recognize equivalent commands or semantic paraphrases. VS Code chat and headless sessions use text reports; their UI may not display panes or status.
 
+
+Secret masking is best-effort and covers credential flags, sensitive headers, URL passwords, curl/mysql credentials and common credential fields in JSON strings. It does not sanitize snapshot file contents or retroactively rewrite saved files. Review files before sharing.
+
 ## Development
 
 ```sh

@@ -73,6 +73,7 @@ Use Node 22.19.0 or later. Dependencies are pinned in `package-lock.json`.
 ```sh
 npm ci --ignore-scripts
 npm test                  # core logic, no Claude Code installation/account required
+npm run test:privacy      # shared masking corpus and real-Git privacy regressions
 CLAUDE_BIN=/path/to/claude npm run test:adapters  # full engine suites, including adapters
 npm run typecheck         # requires engine-generated declarations in each .claude-plugin/types
 ```

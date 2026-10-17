@@ -7,3 +7,4 @@
 | 1 | Agent Profiler 0.1.1: 검색 패턴도 `exportCommandText` opt-in 및 마스킹 적용 | core 329/329, profiler engine 60/60, TypeScript 통과 |
 | 2 | Time Machine 0.1.1: staging 전에 현재 무시 파일을 shadow index에서 제외; restore 충돌 보호 유지 | core 329/329, time-machine engine 98/98, TypeScript 및 실제 Git 회귀 검사 통과 |
 | 3 | Time Machine 0.1.2: 실패 테스트 이름을 parsing 단계에서 마스킹해 JSONL 우회 방지 | core 330/330, time-machine engine 99/99, TypeScript 및 저장 경로 회귀 검사 통과 |
+| 4 | Agent Profiler 0.1.2 / Time Machine 0.1.3 / Loop Detective 0.1.1: 독립 배포용 redactor 복사본 동기화, 자격증명 옵션·URL·JSON 문자열 처리 및 lossy 판정 보완 | core 331/331, 각 engine 60/100/41 통과, 전체 TypeScript, 공통 corpus 39개 및 privacy 검사 통과 |

@@ -141,6 +141,9 @@ Test run identity is a hash of the complete command (whitespace outside quotes i
 
 Storage state appears in the timeline, pane and status line: `recording`, `degraded` (some timeline data was saved but a write failed), or `not persisted` (no timeline write has succeeded in this load). Failed file bodies, including metadata and rolled-over chunks, stay in memory across clear/resume and retry on subsequent recording events and session end. A same-session resume reuses the in-memory recorder so unsaved steps keep their numbers. A continuing failure followed by process termination still loses unsaved memory. Secret keys such as `password`, `authorization`, `api_key` and `access_token` mask their entire values recursively; masked/truncated disk inputs are marked lossy. This supplements string masking and does not sanitize snapshot file contents.
 
+
+Secret masking is best-effort and covers credential flags, sensitive headers, URL passwords, curl/mysql credentials and common credential fields in JSON strings. It does not sanitize snapshot file contents or retroactively rewrite saved files. Review files before sharing.
+
 ## Development
 
 ```bash

@@ -1,3 +1,5 @@
+import { redactSecrets } from './redact.ts'
+
 export type Outcome = { kind: 'failure' | 'success' | 'unknown'; signature?: string; excerpt?: string }
 const MAX_OUTPUT = 65_536
 const UNKNOWN: Outcome = { kind: 'unknown' }
@@ -17,17 +19,11 @@ export function hash(text: string): string {
   }).join('')
 }
 
-const VALUE = String.raw`("[^"]*"|'[^']*'|[^\s'"]+)`
 export function display(text: string, max = 160): string {
-  const clean = text
+  const clean = redactSecrets(text
     .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, '')
-    .replace(/(\bauthorization\s*:\s*)[^\r\n]+/gi, '$1[REDACTED]')
-    .replace(/(\bbearer\s+)[A-Za-z0-9._~+/=-]+/gi, '$1[REDACTED]')
-    .replace(new RegExp(String.raw`(--(?:password|token|api-key)(?:=|\s+))` + VALUE, 'gi'), '$1[REDACTED]')
-    .replace(new RegExp(String.raw`\b([A-Za-z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD)[A-Za-z0-9_]*)=` + VALUE, 'gi'), '$1=[REDACTED]')
-    .replace(new RegExp(String.raw`((?:["']?)(?:password|token|api[_-]?key|secret)(?:["']?)\s*:\s*)` + VALUE, 'gi'), '$1[REDACTED]')
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, ''))
     .replace(/\s+/g, ' ').trim()
   const limit = Math.max(1, Math.floor(max))
   return clean.length > limit ? `${clean.slice(0, limit - 1)}…` : clean

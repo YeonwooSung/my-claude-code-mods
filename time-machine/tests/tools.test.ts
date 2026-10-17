@@ -1,5 +1,18 @@
 import { expect, test } from 'claude-code/testing'
 
+test('token flags and serialized credentials make stored inputs lossy', () => {
+  for (const input of [
+    { command: 'gh api --token FAKE_TOKEN' },
+    { file_path: '/r/.env', content: 'DATABASE_URL=postgres://alice:FAKE_PASSWORD@db/app' },
+    { content: '{"token":"FAKE_JSON"}' },
+    { headers: { 'x-api-key': 'FAKE_HEADER' } },
+  ]) {
+    const stored = summarizeInput(input)
+    expect(stored.lossy).toBe(true)
+    expect(JSON.stringify(stored.input)).not.toContain('FAKE_')
+  }
+})
+
 import { callInput, isMutating, relPath, resultText, summarizeInput, summarizeResult, targetOf } from '../hooks/core/tools.ts'
 
 test('secret keys mask entire values in nested objects and arrays without masking ordinary fields', () => {

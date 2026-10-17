@@ -163,3 +163,5 @@ npx -y -p typescript@5 tsc -p agent-profiler --noEmit
 ```
 
 `tsconfig.json` includes `.claude-plugin/types`, where Claude Code writes `claude-code/index.d.ts` each time it loads the mod (the folder is git-ignored). Before the first load, copy the declarations there yourself, e.g. from the `plugin-authoring` skill's `types/claude-code.d.ts` to `agent-profiler/.claude-plugin/types/claude-code/index.d.ts`.
+
+Secret masking is best-effort and covers credential flags, sensitive headers, URL passwords, curl/mysql credentials and common credential fields in JSON strings. It does not sanitize snapshot file contents or retroactively rewrite saved files. Review files before sharing.

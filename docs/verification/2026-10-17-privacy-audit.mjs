@@ -24,7 +24,7 @@ const { renderReport: contextReport } = await mod('context-inspector/hooks/core/
 const { redactSecrets: contextRedact } = await mod('context-inspector/hooks/core/redact.ts')
 const outputs = []
 // Each repaired group checks absence; untouched groups still characterize the original finding.
-const protectedGroups = new Set(['AP-1', 'TM-4', 'TM-3'])
+const protectedGroups = new Set(['AP-1', 'TM-4', 'TM-3', 'AP-2', 'TM-1', 'LD-1'])
 function contains(label, value, secret) {
   const text = typeof value === 'string' ? value : JSON.stringify(value)
   const protectedCase = protectedGroups.has(label.split(':')[0])
@@ -60,7 +60,7 @@ contains('AP-3: command cut before masking loses closing quote', toOtlp(bash.sna
 const ui = newProfiler('Bash', { command: 'API_KEY=FAKE_UI_SECRET ./run.sh' })
 contains('UI-1: profiler report bypasses redaction', profilerReport(profilerSummary(ui.snapshot(101))), 'FAKE_UI_SECRET')
 contains('TM-1: disk input stores token flag and marks it replayable', diskStep({ command: 'gh api --token FAKE_TM_TOKEN' }, { text: 'ok' }), 'FAKE_TM_TOKEN')
-assert.equal(tm.summarizeInput({ command: 'gh api --token FAKE_TM_TOKEN' }).lossy, false)
+assert.equal(tm.summarizeInput({ command: 'gh api --token FAKE_TM_TOKEN' }).lossy, protectedGroups.has('TM-1'))
 contains('TM-1: ignored file Write body copied into disk input', diskStep({ file_path: '/fake/.env', content: 'DATABASE_URL=postgres://alice:FAKE_DB_PASSWORD@db/app' }, {}, undefined, 'Write'), 'FAKE_DB_PASSWORD')
 contains('TM-1: serialized JSON string is not walked as structured input', diskStep({ content: '{"token":"FAKE_JSON_TOKEN"}' }, {}), 'FAKE_JSON_TOKEN')
 assert(!JSON.stringify(tm.summarizeInput({ token: 'FAKE_STRUCTURED_TOKEN' })).includes('FAKE_STRUCTURED_TOKEN'))
