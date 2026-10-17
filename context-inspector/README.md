@@ -53,7 +53,8 @@ Per-token attention inside the model and exact occupancy are not visible from ou
 ## Export format
 
 One JSON object per line: `meta`, `item` (seq, ctx, turn, door, category, target, chars, est, hash, simhash, born, epoch, live …), `edit`, `sample`, `compaction`, `summary`.
-No raw content. Command, pattern and URL targets are cut to 200 characters after secrets are masked. Errors and user identifiers among compaction entities, and item contents, are kept only as hashes (unsalted; short values can be confirmed by guessing) — this is not anonymization.
+No raw content. Non-file targets (commands, patterns, URLs and agent descriptions) are cut to 200 characters after best-effort secret masking. Masking covers secret environment assignments, Authorization/Bearer credentials, `--password`/`--token`/`--api-key`/`--secret` options, headers ending in `-key`/`-token`/`-secret`, URL passwords, curl `-u`/`--user` credentials and mysql `-p` passwords. File paths are retained unchanged. This is not a complete secret detector: review exports before sharing. Existing export files are not retroactively sanitized by an update; review or remove older files, and rotate any real credentials that were exposed.
+Errors and user identifiers among compaction entities, and item contents, are kept only as hashes (unsalted; short values can be confirmed by guessing) — this is not anonymization.
 `summary` carries `wasteEst` (window now) together with `currentWasteEst` and `sessionRereadEst` (re-read waste: window now / session total).
 
 ## Environments

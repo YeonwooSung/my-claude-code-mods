@@ -8,6 +8,31 @@ import { okLines, promptRow, readFile, runBash, toolResultRow } from './fixtures
 
 const meta = { sessionId: 's1', version: '0.1.0', at: '2026-10-10T00:00:00.000Z' }
 
+test('export masks issue #1 credentials through the tool ingestion path', () => {
+  const l = new Ledger()
+  const commands = [
+    'gh api --token FAKE_tok_123 /user',
+    'curl -H "x-api-key: FAKE_key_456" https://api.example.com',
+    'git clone https://alice:FAKE_pw_789@git.example.com/r.git',
+    'curl -u alice:FAKE_pw_000 https://api.example.com',
+  ]
+  commands.forEach((command, i) => runBash(l, `secret-${i}`, command, 'ok'))
+  ingestToolCall(l, 'url', 'WebFetch', undefined, { url: 'https://alice:FAKE_url_password@example.com/r' })
+  ingestToolResult(l, 'url', { text: 'ok' })
+  ingestAppend(l, toolResultRow('url', 'ok', { tool: 'WebFetch' }))
+  const records = exportLines(l.snapshot(), summarize(l.snapshot(), 'all'), meta).map(line => JSON.parse(line))
+  expect(records.filter(r => r.type === 'item').map(r => r.target.value)).toEqual([
+    'gh api --token [REDACTED] /user',
+    'curl -H "x-api-key: [REDACTED]" https://api.example.com',
+    'git clone https://alice:[REDACTED]@git.example.com/r.git',
+    'curl -u [REDACTED] https://api.example.com',
+    'https://alice:[REDACTED]@example.com/r',
+  ])
+  expect(JSON.stringify(records)).not.toContain('FAKE_')
+  // Export redaction must not rewrite the in-memory analysis targets.
+  expect(l.snapshot().items[0]!.target!.value).toBe(commands[0])
+})
+
 test('export has meta first, one line per record, summary last, and no content', () => {
   const l = new Ledger()
   ingestAppend(l, promptRow('secret prompt text'))
