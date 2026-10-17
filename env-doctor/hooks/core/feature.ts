@@ -22,6 +22,7 @@ export function satisfies(version: string, range: string): Match {
     const match = /^(>=|<=|>|<|=|\^|~)(\d+(?:\.\d+){0,2})$/.exec(token)
     if (!match) return 'unknown'
     const p = match[2]!.split('.').map(Number), cmp = compare(p)
+    if (p.length !== 3 && (match[1] === '>' || match[1] === '<=')) return 'unknown'
     switch (match[1]) {
       case '>=': checks.push(cmp >= 0); break
       case '<=': checks.push(cmp <= 0); break
@@ -46,12 +47,12 @@ export class Feature {
   constructor(value?: unknown) { this.data = restore(value, { requiredEnv: [] as string[] }) }
   async command(args: string, io: Port): Promise<string> {
     const [verb, ...rest] = args.trim().split(/\s+/)
-    if (verb === 'help') return '/doctor [check | require <ENV_NAME> | reset] — Node/package-manager versions and variable presence only. Ranges: exact/major/x, comparisons, full ^/~, ||; other syntax UNKNOWN.'
+    if (verb === 'help') return '/env-doctor [check | require <ENV_NAME> | reset] — Node/package-manager versions and variable presence only. Ranges: exact/major/x, comparisons, full ^/~, ||; other syntax UNKNOWN.'
     if (verb === 'require') {
       const name = rest.join(' ')
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return 'Invalid environment variable name'
       this.data.requiredEnv = bounded([...new Set([...this.data.requiredEnv, name])])
-    } else if (verb && verb !== 'check') return 'Usage: /doctor [check | require <ENV_NAME> | reset]'
+    } else if (verb && verb !== 'check') return 'Usage: /env-doctor [check | require <ENV_NAME> | reset]'
     let manifest: Record<string, unknown>
     try { manifest = object(JSON.parse(await io.read(`${io.cwd}/package.json`))) }
     catch { return 'Env Doctor: package.json manifest unavailable or malformed' }

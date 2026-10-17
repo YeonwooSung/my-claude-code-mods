@@ -23,3 +23,10 @@ test('pre-existing files are labelled and observed out-of-repo writes are visibl
   expect(report).toContain('PRE-EXISTING README.md')
   expect(report).toContain('OUTSIDE /elsewhere/private')
 })
+test('a capped pre-existing baseline stays explicitly incomplete after the live change list shrinks', async () => {
+  const f = new Feature(), status = Array.from({ length: 201 }, (_, i) => ` M old-${i}.ts\0`).join('')
+  await f.command('allow src', io(status))
+  const report = await f.command('', io(' M old-0.ts\0'))
+  expect(report).toContain('INCOMPLETE: pre-existing baseline')
+  expect(report).toContain('BASELINE-UNKNOWN old-0.ts')
+})

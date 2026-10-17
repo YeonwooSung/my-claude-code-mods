@@ -10,7 +10,7 @@ export function compare(beforeValue: unknown, afterValue: unknown, oldValue: unk
   }
   const aScripts = object(before.scripts), bScripts = object(after.scripts)
   for (const name of ['preinstall', 'install', 'postinstall']) if (aScripts[name] !== bScripts[name]) lines.push(`LIFECYCLE ${name}: ${aScripts[name] === undefined ? 'added' : bScripts[name] === undefined ? 'removed' : 'changed'}`)
-  if (![2, 3].includes(Number(old.lockfileVersion)) || ![2, 3].includes(Number(next.lockfileVersion)) || !old.packages || !next.packages) {
+  if (![2, 3].includes(Number(old.lockfileVersion)) || ![2, 3].includes(Number(next.lockfileVersion)) || !old.packages || !next.packages || typeof old.packages !== 'object' || typeof next.packages !== 'object' || Array.isArray(old.packages) || Array.isArray(next.packages)) {
     lines.push('INCOMPLETE: npm package-lock v2/v3 required on both sides; manifest comparison only')
     return lines.length > 200 ? [...lines.slice(0, 200), 'INCOMPLETE: report limited to 200 entries'] : lines
   }
@@ -47,13 +47,17 @@ export class Feature {
     try {
       await git(io, ['rev-parse', '--verify', `${this.data.base}^{commit}`])
       const oldFile = async (path: string) => {
-        const exists = await io.run(['git', '-C', io.cwd, 'cat-file', '-e', `${this.data.base}:${path}`])
-        if (exists.exitCode !== 0) return undefined
+        const names = await git(io, ['ls-tree', '-z', '--name-only', this.data.base, '--', path])
+        if (!names.split('\0').includes(path)) return undefined
         return parse(await git(io, ['show', `${this.data.base}:${path}`]))
       }
       const newFile = async (path: string) => {
         let body: string
-        try { body = await io.read(`${io.cwd}/${path}`) } catch { return undefined }
+        try { body = await io.read(`${io.cwd}/${path}`) } catch (error) {
+          if (object(error).code === 'ENOENT') return undefined
+          if (io.list && !(await io.list(io.cwd)).includes(path)) return undefined
+          throw new Error(`${path} unavailable; absence could not be established`)
+        }
         return parse(body)
       }
       const before = await oldFile('package.json'), after = await newFile('package.json')

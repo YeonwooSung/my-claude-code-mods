@@ -21,7 +21,7 @@ const cases = [
   ['curl -H "Authorization: Bearer FAKE_AUTH" https://x', 'curl -H "Authorization: [REDACTED]" https://x'],
   ['run --token-count 10 ./token.txt', 'run --token-count 10 ./token.txt'],
 ]
-for (const name of ['agent-profiler', 'time-machine', 'loop-detective', 'context-inspector']) {
+for (const name of ['agent-profiler', 'time-machine', 'loop-detective', 'context-inspector', 'verify-board', 'scope-guard', 'blast-radius', 'decision-ledger', 'handoff-pack', 'command-shelf', 'env-doctor', 'dependency-lens', 'assumption-tracker', 'review-queue']) {
   const path = name === 'loop-detective' ? `${name}/hooks/core/fingerprint.ts` : `${name}/hooks/core/redact.ts`
   const core = await import(pathToFileURL(`${process.cwd()}/${path}`))
   const redact = name === 'loop-detective' ? value => core.display(value, 10000) : core.redactSecrets

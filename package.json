@@ -9,7 +9,9 @@
     "test": "node scripts/test-core.mjs",
     "test:adapters": "node scripts/test-adapters.mjs",
     "typecheck": "tsc -p agent-profiler && tsc -p context-inspector && tsc -p time-machine && tsc -p loop-detective && tsc -p pin-memo && tsc -p model-effort-band && tsc -p token-run && tsc -p verify-board && tsc -p scope-guard && tsc -p blast-radius && tsc -p decision-ledger && tsc -p handoff-pack && tsc -p command-shelf && tsc -p env-doctor && tsc -p dependency-lens && tsc -p assumption-tracker && tsc -p review-queue",
-    "test:privacy": "node scripts/sync-redactors.mjs --check && node --experimental-transform-types scripts/test-redaction.mjs && node --experimental-transform-types docs/verification/2026-10-17-privacy-audit.mjs"
+    "test:privacy": "node scripts/sync-redactors.mjs --check && node --experimental-transform-types scripts/test-redaction.mjs && node --experimental-transform-types docs/verification/2026-10-17-privacy-audit.mjs",
+    "test:workflow": "node --experimental-transform-types --test scripts/workflow/integration.test.mjs",
+    "check:workflow": "node scripts/sync-workflow.mjs --check"
   },
   "devDependencies": {
     "expect": "30.2.0",

@@ -3,6 +3,8 @@ export type ProcessResult = { exitCode: number; stdout: string; stderr: string; 
 export type Port = {
   cwd: string
   read(path: string): Promise<string>
+  bytes?(path: string): Promise<string>
+  list?(path: string): Promise<string[]>
   run(argv: readonly string[]): Promise<ProcessResult>
   env(name: string): Promise<string | undefined>
   revision(): Promise<string | undefined>
@@ -11,7 +13,10 @@ export type Port = {
 export type Observation = { tool: string; input: Record<string, unknown>; result: unknown; before?: string; after?: string }
 export function object(v: unknown): Record<string, unknown> { return v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {} }
 export function safeText(v: unknown, limit = 4000): string {
-  return redactSecrets(String(v ?? '').replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '')).slice(0, limit)
+  const text = String(v ?? '').replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '')
+  // Some masking patterns backtrack on very long words. Omit an oversized line whole:
+  // cutting it first could expose an unterminated quoted secret.
+  return text.split('\n').map(line => line.length > 8192 ? '[OMITTED: oversized line]' : redactSecrets(line)).join('\n').slice(0, limit)
 }
 export function hash(text: string): string {
   return [0, 0x9747b28c].map(seed => {
@@ -52,14 +57,18 @@ export async function git(io: Port, args: string[]): Promise<string> {
 export async function statusPaths(io: Port): Promise<string[]> { return changedPaths(await git(io, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])) }
 export async function revision(io: Port): Promise<string | undefined> {
   try {
-    const diff = await git(io, ['diff', '--no-ext-diff', '--no-textconv', '--binary', 'HEAD', '--'])
-    const status = await git(io, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
-    const paths = (await git(io, ['ls-files', '--others', '--exclude-standard', '-z'])).split('\0').filter(Boolean).sort()
+    const root = (await git(io, ['rev-parse', '--show-toplevel'])).trim()
+    if (!root.startsWith('/')) return undefined
+    const repo = { ...io, cwd: root }
+    const head = await git(repo, ['rev-parse', '--verify', 'HEAD'])
+    const diff = await git(repo, ['diff', '--no-ext-diff', '--no-textconv', '--binary', 'HEAD', '--'])
+    const status = await git(repo, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
+    const paths = (await git(repo, ['ls-files', '--others', '--exclude-standard', '-z'])).split('\0').filter(Boolean).sort()
     if (paths.length > 200) return undefined
-    const bodies: string[] = [diff, status]; let size = diff.length + status.length
+    const bodies: string[] = [head, diff, status]; let size = diff.length + status.length
     for (const path of paths) {
-      if (relativePath(io.cwd, path) !== path) return undefined
-      const body = await io.read(`${io.cwd}/${path}`); size += body.length
+      if (relativePath(root, path) !== path) return undefined
+      const body = await (io.bytes ?? io.read)(`${root}/${path}`); size += body.length
       if (size > 2 * 1024 * 1024) return undefined
       bodies.push(path, body)
     }
@@ -70,12 +79,17 @@ export function outcome(result: unknown): 'pass' | 'fail' | 'unknown' {
   const a = object(result), r = object(a.result)
   if (a.deny !== undefined) return 'unknown'
   for (const v of [a, r]) {
-    if (['interrupted', 'cancelled', 'canceled', 'timedOut', 'timed_out', 'truncated', 'output_truncated'].some(k => v[k] === true)) return 'unknown'
-    if (['task_id', 'taskId', 'backgroundTaskId', 'background_task_id'].some(k => v[k] !== undefined && v[k] !== null && v[k] !== '')) return 'unknown'
+    if (['interrupted', 'cancelled', 'canceled', 'timedOut', 'timed_out', 'truncated', 'output_truncated', 'isStdoutTruncated', 'isStderrTruncated', 'backgroundedByUser', 'backgroundedByTurnAbort', 'backgroundedToDeliverMessage'].some(k => v[k] === true)) return 'unknown'
+    if (['task_id', 'taskId', 'backgroundTaskId', 'background_task_id', 'timedOutAfterMs', 'rawOutputPath', 'persistedOutputPath'].some(k => v[k] !== undefined && v[k] !== null && v[k] !== '')) return 'unknown'
   }
   if (a.isError === true) return 'fail'
+  const text = [a.text, r.stdout, r.stderr].filter((v): v is string => typeof v === 'string').join('\n').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+  if (text.length > 65_536) return 'unknown'
+  if (/^# fail [1-9]\d*\s*$/m.test(text) || /^\s*Tests(?::|\s+)[^\n]*\b[1-9]\d* failed\b/m.test(text) || /^=+[^\n]*\b[1-9]\d* (?:failed|errors?)\b/m.test(text) || /^test result: FAILED\./m.test(text) || /^\s*--- FAIL: /m.test(text)) return 'fail'
   const code = r.exitCode ?? r.exit_code
-  return typeof code === 'number' && Number.isInteger(code) ? code === 0 ? 'pass' : 'fail' : 'unknown'
+  if (typeof code === 'number' && Number.isInteger(code)) return code === 0 ? 'pass' : 'fail'
+  // Builtin Bash exposes tool failure via isError and foreground completion via interrupted/streams, not exitCode.
+  return typeof r.stdout === 'string' && typeof r.stderr === 'string' && r.interrupted === false ? 'pass' : 'unknown'
 }
 export function isCheck(command: string): boolean {
   // Conservative whole-command allowlist; compound shell programs are not proof of a check.
@@ -97,4 +111,10 @@ export function safeData(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(safeData)
   if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, safeData(v)]))
   return value
+}
+
+export function reportText(value: unknown): string {
+  const limit = 32 * 1024, notice = '\nINCOMPLETE: report truncated; filter or inspect smaller groups.'
+  const text = safeText(value, limit + 1)
+  return text.length > limit || String(value ?? '').length > limit ? text.slice(0, limit - notice.length) + notice : text
 }

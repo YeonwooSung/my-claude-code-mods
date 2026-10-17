@@ -25,3 +25,6 @@ test('unavailable binaries, malformed manifests and unsupported ranges report un
   await f.command('require API_TOKEN', io)
   expect(await f.command('', { ...io, env: async () => undefined })).toContain('API_TOKEN: MISSING')
 })
+test('unsupported partial greater-than and less-or-equal comparators never give wrong semver verdicts', () => {
+  for (const range of ['>20', '<=20', '>20.5', '<=20.5']) expect(satisfies('20.5.1', range)).toBe('unknown')
+})

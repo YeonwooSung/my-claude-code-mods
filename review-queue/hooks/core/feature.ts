@@ -6,7 +6,7 @@ async function signature(io: Port, path: string): Promise<string | undefined> {
     const staged = await git(io, ['diff', '--no-ext-diff', '--no-textconv', '--binary', '--cached', 'HEAD', '--', path])
     const unstaged = await git(io, ['diff', '--no-ext-diff', '--no-textconv', '--binary', '--', path])
     let body: string | undefined
-    try { body = await io.read(`${io.cwd}/${path}`); if (body.length > 2 * 1024 * 1024) return undefined } catch { /* Deleted files have complete binary diff evidence. */ }
+    try { body = await (io.bytes ?? io.read)(`${io.cwd}/${path}`); if (body.length > 2 * 1024 * 1024) return undefined } catch { /* Deleted files have complete binary diff evidence. */ }
     if (body === undefined && !staged && !unstaged) return undefined
     return hash(JSON.stringify([staged, unstaged, body]))
   } catch { return undefined }
@@ -16,7 +16,7 @@ export class Feature {
   constructor(value?: unknown) { this.data = restore(value, { groups: [] as Group[], reviews: [] as Review[] }) }
   async command(args: string, io: Port): Promise<string> {
     const [verb, ...rest] = args.trim().split(/\s+/); const text = rest.join(' ')
-    if (verb === 'help') return '/review [group <purpose> | <path>] [mark <path> | unmark <path> | list | reset] — file-level review; staged and unstaged edits invalidate marks.'
+    if (verb === 'help') return '/review-queue [group <purpose> | <path>] [mark <path> | unmark <path> | list | reset] — file-level review; staged and unstaged edits invalidate marks.'
     if (verb === 'group') {
       const [purpose, path = ''] = entries(text), rel = relativePath(io.cwd, path)
       if (!purpose || !path || !rel || /(^|\/)\.\.(\/|$)/.test(path) || safeText(rel) !== rel) return 'Invalid group/path: group <purpose> | <project-relative path>'
@@ -33,7 +33,7 @@ export class Feature {
         if (!current) return 'INCOMPLETE: diff evidence unavailable; review not marked'
         this.data.reviews = bounded([...this.data.reviews.filter(r => r.path !== path), { path, signature: current }])
       }
-    } else if (verb && verb !== 'list') return 'Usage: /review [group <purpose> | <path>] [mark <path> | unmark <path> | list | reset]'
+    } else if (verb && verb !== 'list') return 'Usage: /review-queue [group <purpose> | <path>] [mark <path> | unmark <path> | list | reset]'
     let paths: string[]
     try { paths = await statusPaths(io) } catch { return 'Review Queue: INCOMPLETE changed files unavailable' }
     const sections = new Map<string, string[]>(); let incomplete = paths.length > 200
