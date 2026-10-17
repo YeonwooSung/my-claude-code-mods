@@ -91,3 +91,8 @@ test('latest check replaces an earlier failure without duplicating the command',
   expect(f.data.checks).toHaveLength(1)
   expect(await f.command('', io())).toContain('PASS npm test')
 })
+test('Vitest list subcommands never become passing verification records', async () => {
+  const f = new Feature()
+  for (const command of ['vitest list', 'npx vitest list', 'vitest --run list']) await f.observe({ ...observation('a', 'a'), input: { command } }, io())
+  expect(f.data.checks).toHaveLength(0)
+})

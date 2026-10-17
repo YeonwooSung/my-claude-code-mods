@@ -19,7 +19,7 @@ export function safeText(v: unknown, limit = 4000): string {
   // cutting it first could expose an unterminated quoted secret.
   const lines = text.split('\n')
   // Dropping a credential's opening line could expose its quoted continuation.
-  if (lines.some(line => line.length > 8192 && /password|passwd|pwd|token|key|secret|authorization|credential|cookie/i.test(line))) return '[OMITTED: oversized sensitive value]'
+  if (lines.some(line => line.length > 8192 && /["'\\]|password|passwd|pwd|token|key|secret|authorization|credential|cookie/i.test(line))) return '[OMITTED: oversized sensitive value]'
   return redactSecrets(lines.map(line => line.length > 8192 ? '[OMITTED: oversized line]' : line).join('\n')).slice(0, limit)
 }
 export function hash(text: string): string {
@@ -100,6 +100,7 @@ export function outcome(result: unknown): 'pass' | 'fail' | 'unknown' {
   return typeof r.stdout === 'string' && typeof r.stderr === 'string' && r.interrupted === false ? 'pass' : 'unknown'
 }
 export function isCheck(command: string): boolean {
+  if (/^(?:npx\s+)?vitest\b.*\slist(?:\s|$)/.test(command.trim())) return false
   // Known introspection-only options do not run the check itself.
   if (/(?:^|\s)(?:--help|-h|--version|-V|--collect-only|--co|--listTests|--list-tests|--showConfig|--show-config|--list|-list)(?:\s|=|$)/.test(command)) return false
   // Conservative whole-command allowlist; compound shell programs are not proof of a check.

@@ -119,6 +119,7 @@ test('dirty submodule content is unknown rather than a reusable revision signatu
   for (const args of [['add', '.'], ['commit', '-qm', 'nested base']]) assert.equal((await r.io.run(['git', '-C', nested, ...args])).exitCode, 0)
   await r.git('add', 'nested'); await r.git('commit', '-qm', 'parent base')
   assert.ok(await r.io.revision())
+  await r.git('config', 'diff.ignoreSubmodules', 'all')
   await writeFile(join(nested, 'a.ts'), 'dirty')
   assert.equal(await r.io.revision(), undefined)
 })

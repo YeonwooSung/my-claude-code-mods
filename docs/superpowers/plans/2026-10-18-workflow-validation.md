@@ -24,7 +24,7 @@
 
 ## Task 3 — Adapter lifecycle and combined operation
 
-- [ ] Test concurrent commands; failed reads/writes and recovery; identity failure/change; reset recovery; thrown tools; read-only command behavior.
-- [ ] Compose the ten real adapters against one controlled host, verifying command registration and exactly-once tool execution. Distinguish this from actual engine co-loading or live pixel verification.
-- [ ] Run all core tests, all engine suites, all typechecks, privacy checks, synchronization and manifest validation.
-- [ ] Record counts, known limits and commit the final validation unit.
+- [x] Test concurrent commands; failed reads/writes and recovery; identity failure/change; reset recovery; thrown tools; read-only command behavior.
+- [x] Compose the ten real adapters against one controlled host, verifying command registration and exactly-once tool execution. Distinguish this from actual engine co-loading or live pixel verification.
+- [x] Run all core tests, all engine suites, all typechecks, privacy checks, synchronization and manifest validation.
+- [x] Record counts, known limits and commit the final validation unit.

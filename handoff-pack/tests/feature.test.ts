@@ -47,3 +47,11 @@ test('todo retention and completion preserve stable identities without affecting
   expect(report).toContain('[x] #201 task-201')
   expect(report).toContain('[ ] #200 task-200')
 })
+test('handoff does not present list-only Vitest invocations as completed verification', async () => {
+  const f = new Feature()
+  for (const command of ['vitest list', 'npx vitest list']) await f.observe({ tool: 'Bash', input: { command }, result: { result: { exitCode: 0 } }, before: 'a', after: 'a' }, io)
+  const report = await f.command('', io)
+  expect(report).not.toContain('PASS vitest')
+  expect(report).not.toContain('PASS npx vitest')
+  expect(f.data.checks).toHaveLength(0)
+})

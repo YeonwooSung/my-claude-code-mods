@@ -26,3 +26,27 @@ test('failed durable write returns visible error', async ($, on) => {
   on('store.get', () => ({ value: undefined })); on('store.set', () => ({ deny: 'disk full' }))
   expect((await $.command.run({ command: 'decision', args: 'reset' } as never)).text).toContain('not saved')
 })
+test('concurrent engine commands persist every unique decision exactly once', async ($, on) => {
+  const saved = new Map<string, unknown>()
+  on('session.cwd', () => ({ value: '/repo' })); on('session.id', () => ({ value: 's' }))
+  on('store.get', (_$, e) => ({ value: saved.get(e.key) }))
+  on('store.set', (_$, e) => { saved.set(e.key, JSON.parse(JSON.stringify(e.value))); return { value: undefined } })
+  const replies = await Promise.all(Array.from({ length: 8 }, (_, i) => $.command.run({ command: 'decision', args: `add ${i}.ts | engine-choice-${i} | reason` } as never)))
+  for (const reply of replies) expect(reply.text).not.toContain('not saved')
+  const report = (await $.command.run({ command: 'decision', args: 'list' } as never)).text
+  for (let i = 0; i < 8; i++) expect(report).toContain(`engine-choice-${i}`)
+  expect(report).toContain('#8')
+})
+test('engine read-only report survives a write outage after a rejected mutation', async ($, on) => {
+  let fail = false
+  const saved = new Map<string, unknown>()
+  on('session.cwd', () => ({ value: '/repo' })); on('session.id', () => ({ value: 's' }))
+  on('store.get', (_$, e) => ({ value: saved.get(e.key) }))
+  on('store.set', (_$, e) => { if (fail) return { deny: 'disk full' }; saved.set(e.key, JSON.parse(JSON.stringify(e.value))); return { value: undefined } })
+  await $.command.run({ command: 'decision', args: 'add a.ts | durable-choice | reason' } as never)
+  fail = true
+  expect((await $.command.run({ command: 'decision', args: 'add b.ts | unsaved-choice | reason' } as never)).text).toContain('not saved')
+  const report = (await $.command.run({ command: 'decision', args: 'list' } as never)).text
+  expect(report).toContain('durable-choice')
+  expect(report).not.toContain('unsaved-choice')
+})

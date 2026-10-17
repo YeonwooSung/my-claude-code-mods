@@ -6,6 +6,7 @@ const name = 'env-doctor'
 const command = 'env-doctor'
 type AdapterState = { queue: Promise<unknown>; replaying: boolean }
 const state: AdapterState = { queue: Promise.resolve(), replaying: false }
+const observesTools = 'observe' in Feature.prototype
 const serial = <T>(fn: () => Promise<T>): Promise<T> => {
   const work = state.queue.then(fn); state.queue = work.catch(() => {}); return work
 }
@@ -34,7 +35,7 @@ const port = async ($: EngineInterface): Promise<Port> => {
   return io
 }
 const identity = ($: EngineInterface) => Promise.all([$.session.cwd(), $.session.id()])
-const transact = async ($: EngineInterface, fn: (model: Model, io: Port) => Promise<string | void>, expected: string[]): Promise<string> => serial(async () => {
+const transact = async ($: EngineInterface, fn: (model: Model, io: Port) => Promise<string | void>, expected: string[], forceSave = false): Promise<string> => serial(async () => {
   const [io, id] = await Promise.all([port($), $.session.id()])
   if (io.cwd !== expected[0] || id !== expected[1]) return 'Session changed; operation not applied'
   const key = `${name}:v1:${JSON.stringify([io.cwd, id])}`
@@ -42,12 +43,15 @@ const transact = async ($: EngineInterface, fn: (model: Model, io: Port) => Prom
   const loaded = await identity($)
   if (loaded[0] !== expected[0] || loaded[1] !== expected[1]) return 'Session changed; operation not applied'
   const model = new Feature(raw)
+  const previous = JSON.stringify(safeData(model.data))
   const result = await fn(model, io)
   // No raw event payloads reach storage. Keep the serialized state bounded.
   const serialized = JSON.stringify(safeData(model.data))
-  if (serialized.length > 256 * 1024) throw new Error('state limit exceeded; not saved')
-  try { await $.store.set(key, JSON.parse(serialized)) }
-  catch { throw new Error('state not saved; retry after storage recovers') }
+  if (forceSave || serialized !== previous) {
+    if (serialized.length > 256 * 1024) throw new Error('state limit exceeded; not saved')
+    try { await $.store.set(key, JSON.parse(serialized)) }
+    catch { throw new Error('state not saved; retry after storage recovers') }
+  }
   return reportText(result ?? '')
 })
 export const register: Register = on => {
@@ -61,10 +65,11 @@ export const register: Register = on => {
       return { text: await transact($, async (model, io) => {
         if ((e.args ?? '').trim() === 'reset') { model.data = new Feature().data; return `${name}: records reset` }
         return model.command(e.args ?? '', io)
-    }, expected) } } catch (error) { return { text: `${name}: ${safeText(error instanceof Error ? error.message : error)}` } }
+    }, expected, (e.args ?? '').trim() === 'reset') } } catch (error) { return { text: `${name}: ${safeText(error instanceof Error ? error.message : error)}` } }
   })
   on('tool.call', async ($, e, next) => {
-    if (state.replaying) return next(e)
+    const ownReplay = state.replaying && (next.origin?.plugin === name || next.origin?.plugin.startsWith(name + '@'))
+    if (!observesTools || ownReplay) return next(e)
     const expected = await identity($).catch(() => undefined)
     let before: string | undefined
     if (['verify-board', 'handoff-pack'].includes(name) && e.tool === 'Bash') {

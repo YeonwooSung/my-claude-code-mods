@@ -29,3 +29,10 @@ test('truncated stderr and unreadable untracked content never produce complete r
   expect(await revision(base)).toBeUndefined()
   expect(await revision({ ...base, run: async () => ({ exitCode: 0, stdout: '', stderr: '', isStderrTruncated: true }) })).toBeUndefined()
 })
+test('oversized quoted credential forms cannot leak their continuation after line omission', () => {
+  for (const prefix of ["curl --user 'name:", "curl -u 'name:", "curl 'https://name:", "mysql -u name -p'"]) {
+    const result = safeText(prefix + 'x'.repeat(9000) + "\nPRIVATE_TAIL'")
+    expect(result).not.toContain('PRIVATE_TAIL')
+    expect(result).toContain('OMITTED')
+  }
+})
