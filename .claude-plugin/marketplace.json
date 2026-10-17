@@ -43,6 +43,11 @@
       "name": "verify-board",
       "source": "./verify-board",
       "description": "Verify Board"
+    },
+    {
+      "name": "scope-guard",
+      "source": "./scope-guard",
+      "description": "Scope Guard"
     }
   ]
 }

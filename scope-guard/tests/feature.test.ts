@@ -1,0 +1,25 @@
+import { test, expect } from 'claude-code/testing'
+import { Feature } from '../hooks/core/feature.ts'
+const io = (status = '') => ({ cwd: '/repo', read: async () => '', run: async () => ({ exitCode: 0, stdout: status, stderr: '' }), env: async () => undefined, revision: async () => 'a' })
+test('explicit path scopes accept descendants, reject prefix siblings and show both rename sides', async () => {
+  const f = new Feature()
+  await f.command('allow src/auth', io())
+  const report = await f.command('', io(' M src/auth/a.ts\0 M src/authz/a.ts\0R  src/auth/new.ts\0src/old.ts\0'))
+  expect(report).toContain('OUTSIDE src/authz/a.ts')
+  expect(report).toContain('OUTSIDE src/old.ts')
+  expect(report).not.toContain('OUTSIDE src/auth/a.ts')
+})
+test('scope entry rejects traversal and empty scopes do not pretend everything is permitted', async () => {
+  const f = new Feature()
+  expect(await f.command('allow ../outside', io())).toContain('Invalid')
+  expect(await f.command('', io())).toContain('No scope')
+  expect(await f.command('allow src/../../outside', io())).toContain('Invalid')
+})
+test('pre-existing files are labelled and observed out-of-repo writes are visible without blocking', async () => {
+  const f = new Feature()
+  await f.command('allow src', io(' M README.md\0'))
+  await f.observe({ tool: 'Write', input: { file_path: '/elsewhere/private' }, result: { text: 'ok' } }, io())
+  const report = await f.command('', io(' M README.md\0 M src/a.ts\0'))
+  expect(report).toContain('PRE-EXISTING README.md')
+  expect(report).toContain('OUTSIDE /elsewhere/private')
+})

@@ -176,3 +176,5 @@ model-effort-band/.claude-plugin/types/
 token-run/.claude-plugin/types/
 
 verify-board/.claude-plugin/types/
+
+scope-guard/.claude-plugin/types/

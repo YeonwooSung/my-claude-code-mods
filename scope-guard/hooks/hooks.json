@@ -1,0 +1,6 @@
+{
+  "description": "Scope Guard hooks module",
+  "modules": [
+    "./register.ts"
+  ]
+}
