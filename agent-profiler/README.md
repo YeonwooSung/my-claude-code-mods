@@ -70,7 +70,7 @@ Set in the `/plugin` settings menu or in settings `pluginConfigs`.
 |---|---|---|
 | `otlpEndpoint` | `""` | OTLP/HTTP base URL, e.g. `http://localhost:4318`. The mod POSTs to `{endpoint}/v1/traces`. Empty means file only. |
 | `outputDir` | `~/.claude/agent-profiler` | Where trace files are written, one folder per session (see below). |
-| `exportCommandText` | `false` | Include turn prompts and Bash command lines in exported traces (files and POSTs), with obvious secrets redacted. |
+| `exportCommandText` | `false` | Include turn prompts, Bash command lines and search patterns in exported traces (files and POSTs), with obvious secrets redacted. |
 
 ## Trace files
 
@@ -92,7 +92,7 @@ Per span: name, start/end time, parent, status, and these attributes.
 - Resource: `service.name=claude-code`, `session.id`, `agent_profiler.version`.
 - Turn: `agent_profiler.turn.reason`; `agent_profiler.turn.prompt` (first 120 characters) only with `exportCommandText`.
 - Model request (`chat <model>`): `gen_ai.request.model`, `gen_ai.response.model`, input/output token counts, cache read/creation tokens, finish reason, effort, `agent_profiler.ttft_ms`; child spans `model.ttft`, `model.thinking_stream`, `model.output_stream`.
-- Tool (`execute_tool <tool>`): tool name and call id, `agent_profiler.exec_ms`, `wait_ms`, `permission` decision, `fs.path` and `fs.range` (file tools), `search.pattern` (Glob/Grep), `bash.category`, launched agent id; `agent_profiler.bash.command` only with `exportCommandText`; child spans `tool.exec` and `tool.approval_wait` / `tool.overhead`.
+- Tool (`execute_tool <tool>`): tool name and call id, `agent_profiler.exec_ms`, `wait_ms`, `permission` decision, `fs.path` and `fs.range` (file tools), `search.pattern` (Glob/Grep, redacted and only with `exportCommandText`), `bash.category`, launched agent id; `agent_profiler.bash.command` only with `exportCommandText`; child spans `tool.exec` and `tool.approval_wait` / `tool.overhead`.
 - Subagent (`invoke_agent <type>`): agent id and type, whether it ran async.
 - Every span: `agent_profiler.category`, `agent_profiler.observability`, `agent_profiler.incomplete` when still open.
 

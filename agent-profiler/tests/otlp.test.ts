@@ -2,7 +2,20 @@ import { expect, test } from 'claude-code/testing'
 
 import { traceIdFromSession } from '../hooks/core/ids.ts'
 import { toOtlp } from '../hooks/core/otlp.ts'
+import { Profiler, summarizeInput } from '../hooks/core/profiler.ts'
 import { session, withSubagent } from './fixtures.ts'
+
+test('search text is opt-in and masked in exported traces', () => {
+  const p = new Profiler('search')
+  p.toolStart(0, { id: 'grep', tool: 'Grep', input: summarizeInput('Grep', { pattern: 'API_KEY=FAKE_SEARCH_SECRET', path: '/repo' }) })
+  const snapshot = p.snapshot(1)
+  const defaultExport = JSON.stringify(toOtlp(snapshot, 'test'))
+  expect(defaultExport).not.toContain('FAKE_SEARCH_SECRET')
+  expect(defaultExport).not.toContain('agent_profiler.search.pattern')
+  const optedIn = JSON.stringify(toOtlp(snapshot, 'test', { commandText: true }))
+  expect(optedIn).not.toContain('FAKE_SEARCH_SECRET')
+  expect(optedIn).toContain('API_KEY=[REDACTED]')
+})
 
 function spansOf(p: ReturnType<typeof session>) {
   return toOtlp(p.snapshot(20_000), '0.1.0').resourceSpans[0]?.scopeSpans[0]?.spans ?? []

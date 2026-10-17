@@ -23,10 +23,13 @@ const { summarize: contextSummary } = await mod('context-inspector/hooks/core/su
 const { renderReport: contextReport } = await mod('context-inspector/hooks/core/report.ts')
 const { redactSecrets: contextRedact } = await mod('context-inspector/hooks/core/redact.ts')
 const outputs = []
+// Each repaired group checks absence; untouched groups still characterize the original finding.
+const protectedGroups = new Set(['AP-1'])
 function contains(label, value, secret) {
   const text = typeof value === 'string' ? value : JSON.stringify(value)
-  assert(text.includes(secret), `${label}: expected reproduction no longer leaks`)
-  outputs.push({ label, secret, evidence: text.length > 300 ? text.slice(text.indexOf(secret) - 40, text.indexOf(secret) + secret.length + 50) : text })
+  const protectedCase = protectedGroups.has(label.split(':')[0])
+  assert.equal(text.includes(secret), !protectedCase, `${label}: unexpected secret exposure state`)
+  outputs.push({ label, protected: protectedCase, evidence: protectedCase ? 'secret absent' : text.length > 300 ? text.slice(Math.max(0, text.indexOf(secret) - 40), text.indexOf(secret) + secret.length + 50) : text })
 }
 function newProfiler(tool, input) {
   const p = new Profiler('audit-session')
@@ -106,4 +109,4 @@ try {
   const next = await git.snapshot(first.commit, 'after ignoring', 'refs/tm/audit/main')
   contains('TM-4: newly ignored file stays tracked and new secrets enter shadow snapshot', await git.git(['show', `${next.commit}:settings.txt`]), 'FAKE_NEWLY_IGNORED_SECRET')
 } finally { await rm(tmp, { recursive: true, force: true }) }
-console.log(JSON.stringify({ characterizedLeaks: outputs.length, outputs }, null, 2))
+console.log(JSON.stringify({ checkedCases: outputs.length, protectedCases: outputs.filter(x => x.protected).length, remainingLeaks: outputs.filter(x => !x.protected).length, outputs }, null, 2))

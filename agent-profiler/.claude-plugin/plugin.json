@@ -1,6 +1,6 @@
 {
   "name": "agent-profiler",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Execution profiler for Claude Code: model wait vs tools vs subagents, live, with OTLP export",
   "author": { "name": "YeonwooSung" },
   "userConfig": {
@@ -18,8 +18,8 @@
     },
     "exportCommandText": {
       "type": "boolean",
-      "title": "Export prompts and Bash commands",
-      "description": "Include turn prompts and Bash command lines in exported traces (files and POSTs), with obvious secrets redacted. Off: they stay out; command categories are still exported.",
+      "title": "Export prompts, Bash commands and searches",
+      "description": "Include turn prompts, Bash command lines and search patterns in exported traces (files and POSTs), with obvious secrets redacted. Off: they stay out; command categories are still exported.",
       "default": false
     }
   }

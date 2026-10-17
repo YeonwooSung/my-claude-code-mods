@@ -27,7 +27,7 @@ export type OtlpOptions = {
   include?: (key: string) => boolean
   // Emit the session root span. Default true; batches leave it to the final export.
   root?: boolean
-  // Export turn prompts and Bash command lines (redacted). Default false: both are left out.
+  // Export prompts, Bash commands and search patterns (redacted). Default false: all are left out.
   commandText?: boolean
 }
 
@@ -182,7 +182,7 @@ export function toOtlp(s: Snapshot, version: string, options: OtlpOptions = {}):
       'agent_profiler.permission': x.decision,
       'agent_profiler.fs.path': x.input.path,
       'agent_profiler.fs.range': x.input.range,
-      'agent_profiler.search.pattern': x.input.pattern,
+      'agent_profiler.search.pattern': text(x.input.pattern),
       'agent_profiler.bash.command': text(x.input.command),
       'agent_profiler.bash.category': x.tool === 'Bash' ? classifyCommand(x.input.command ?? '') : undefined,
       'agent_profiler.launched_agent': x.launchedAgentId,
