@@ -3,6 +3,18 @@ import { expect, test } from 'claude-code/testing'
 import { redactSecrets } from '../hooks/core/redact.ts'
 import { toOtlp } from '../hooks/core/otlp.ts'
 import { session } from './fixtures.ts'
+import { Profiler, summarizeInput } from '../hooks/core/profiler.ts'
+
+test('long quoted credentials are masked before prompt and command prefixes are stored', () => {
+  const raw = '--password "FAKE_LONG_SECRET' + 'x'.repeat(3000) + '" --verbose'
+  const p = new Profiler('long')
+  p.turnStart(0, 'turn', raw)
+  p.toolStart(1, { id: 'bash', tool: 'Bash', input: summarizeInput('Bash', { command: raw }) })
+  const snapshot = p.snapshot(2)
+  expect(snapshot.turns[0]!.prompt).not.toContain('FAKE_LONG_SECRET')
+  expect(snapshot.tools[0]!.input.command).toBe('--password [REDACTED] --verbose')
+  expect(JSON.stringify(toOtlp(snapshot, 'test', { commandText: true }))).not.toContain('FAKE_LONG_SECRET')
+})
 
 test('obvious secrets are redacted from command text', () => {
   expect(redactSecrets(`curl -H "Authorization: Bearer abc.def" https://x`)).toBe('curl -H "Authorization: [REDACTED]" https://x')

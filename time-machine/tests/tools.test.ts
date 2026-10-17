@@ -1,4 +1,14 @@
 import { expect, test } from 'claude-code/testing'
+import { compareOutputs } from '../hooks/core/compare.ts'
+
+test('result heads and rerun comparisons mask long quoted secrets before clipping', () => {
+  const raw = '--password "FAKE_LONG_SECRET' + 'x'.repeat(3000) + '" --verbose'
+  const result = summarizeResult({ text: raw })
+  expect(result.head).toBe('--password [REDACTED] --verbose')
+  expect(result.chars).toBe(raw.length)
+  const compared = compareOutputs(undefined, raw)
+  expect(compared.added).toEqual(['--password [REDACTED] --verbose'])
+})
 
 test('token flags and serialized credentials make stored inputs lossy', () => {
   for (const input of [

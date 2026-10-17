@@ -1,4 +1,5 @@
 import type { AgentRec, Outcome, Snapshot, StepRec, ToolInputSummary, ToolRec, TurnRec, Usage } from './types.ts'
+import { redactSecrets } from './redact.ts'
 
 export const MAIN = 'main'
 
@@ -17,6 +18,10 @@ function text(value: unknown, n: number): string | undefined {
   return typeof value === 'string' ? value.slice(0, n) : undefined
 }
 
+function safeText(value: unknown, n: number): string | undefined {
+  return typeof value === 'string' ? redactSecrets(value).slice(0, n) : undefined
+}
+
 function defined<T extends object>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as T
 }
@@ -24,7 +29,7 @@ function defined<T extends object>(value: T): T {
 export function summarizeInput(tool: string, input: Record<string, unknown>): ToolInputSummary {
   switch (tool) {
     case 'Bash':
-      return defined({ command: text(input.command, 512), description: text(input.description, 120) })
+      return defined({ command: safeText(input.command, 512), description: safeText(input.description, 120) })
     case 'Read': {
       const paged = input.offset !== undefined || input.limit !== undefined
       return defined({ path: text(input.file_path, 512), range: paged ? `${input.offset ?? ''}:${input.limit ?? ''}` : undefined })
@@ -37,10 +42,10 @@ export function summarizeInput(tool: string, input: Record<string, unknown>): To
       return defined({ path: text(input.notebook_path, 512) })
     case 'Glob':
     case 'Grep':
-      return defined({ pattern: text(input.pattern, 200), path: text(input.path, 512) })
+      return defined({ pattern: safeText(input.pattern, 200), path: text(input.path, 512) })
     case 'Agent':
     case 'Task':
-      return defined({ subagentType: text(input.subagent_type, 80), description: text(input.description, 120) })
+      return defined({ subagentType: safeText(input.subagent_type, 80), description: safeText(input.description, 120) })
     default:
       return {}
   }
@@ -93,7 +98,7 @@ export class Profiler {
 
   turnStart(t: number, turnId: string, prompt = '', ctx = MAIN): void {
     if (this.turns.has(turnId)) return
-    this.turns.set(turnId, { id: turnId, ctx, start: t, prompt: prompt.slice(0, 120) })
+    this.turns.set(turnId, { id: turnId, ctx, start: t, prompt: redactSecrets(prompt).slice(0, 120) })
     this.seen(t)
     this.stack(ctx).push(turnId)
     this.version += 1

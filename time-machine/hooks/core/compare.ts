@@ -83,7 +83,7 @@ export function compareOutputs(was: StepResult | undefined, nowText: string, was
   const before = new Map<string, number>()
   for (const line of (was?.head ?? '').split('\n')) before.set(line, (before.get(line) ?? 0) + 1)
   const added: string[] = []
-  for (const line of redactSecrets(nowText.slice(0, RESULT_HEAD_MAX)).split('\n')) {
+  for (const line of redactSecrets(nowText).slice(0, RESULT_HEAD_MAX).split('\n')) {
     const left = before.get(line) ?? 0
     if (left > 0) before.set(line, left - 1)
     else added.push(line)

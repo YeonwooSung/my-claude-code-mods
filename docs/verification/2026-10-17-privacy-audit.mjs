@@ -24,7 +24,7 @@ const { renderReport: contextReport } = await mod('context-inspector/hooks/core/
 const { redactSecrets: contextRedact } = await mod('context-inspector/hooks/core/redact.ts')
 const outputs = []
 // Each repaired group checks absence; untouched groups still characterize the original finding.
-const protectedGroups = new Set(['AP-1', 'TM-4', 'TM-3', 'AP-2', 'TM-1', 'LD-1'])
+const protectedGroups = new Set(['AP-1', 'TM-4', 'TM-3', 'AP-2', 'TM-1', 'LD-1', 'AP-3', 'TM-2', 'UI-AP'])
 function contains(label, value, secret) {
   const text = typeof value === 'string' ? value : JSON.stringify(value)
   const protectedCase = protectedGroups.has(label.split(':')[0])
@@ -58,7 +58,7 @@ contains('AP-3: prompt cut before masking loses closing quote', toOtlp(prompt.sn
 const bash = newProfiler('Bash', { command: '--password "FAKE_CUT_COMMAND' + 'z'.repeat(600) + '"' })
 contains('AP-3: command cut before masking loses closing quote', toOtlp(bash.snapshot(101), 'audit', { commandText: true }), 'FAKE_CUT_COMMAND')
 const ui = newProfiler('Bash', { command: 'API_KEY=FAKE_UI_SECRET ./run.sh' })
-contains('UI-1: profiler report bypasses redaction', profilerReport(profilerSummary(ui.snapshot(101))), 'FAKE_UI_SECRET')
+contains('UI-AP: profiler report bypasses redaction', profilerReport(profilerSummary(ui.snapshot(101))), 'FAKE_UI_SECRET')
 contains('TM-1: disk input stores token flag and marks it replayable', diskStep({ command: 'gh api --token FAKE_TM_TOKEN' }, { text: 'ok' }), 'FAKE_TM_TOKEN')
 assert.equal(tm.summarizeInput({ command: 'gh api --token FAKE_TM_TOKEN' }).lossy, protectedGroups.has('TM-1'))
 contains('TM-1: ignored file Write body copied into disk input', diskStep({ file_path: '/fake/.env', content: 'DATABASE_URL=postgres://alice:FAKE_DB_PASSWORD@db/app' }, {}, undefined, 'Write'), 'FAKE_DB_PASSWORD')
@@ -86,7 +86,7 @@ for (const [command, secret] of loopCommands) {
 }
 const l = new Ledger()
 runBash(l, 'cmd', 'API_KEY=FAKE_CONTEXT_UI ./run.sh', 'ok')
-contains('UI-1: context report bypasses export redactor', contextReport(contextSummary(l.snapshot(), 'all'), 'occupants'), 'FAKE_CONTEXT_UI')
+contains('UI-CI: context report bypasses export redactor', contextReport(contextSummary(l.snapshot(), 'all'), 'occupants'), 'FAKE_CONTEXT_UI')
 contains('CI-1: header escaped quote leaves secret suffix visible', contextRedact(String.raw`curl -H "x-api-key: FAKE_PREFIX\"FAKE_HEADER_TAIL" https://example.com`), 'FAKE_HEADER_TAIL')
 contains('CI-1: serialized JSON credential remains in export redactor output', contextRedact(`curl -d '{"token":"FAKE_CONTEXT_JSON"}' https://example.com`), 'FAKE_CONTEXT_JSON')
 // Exercise the real shadow-git implementation only in a disposable directory.

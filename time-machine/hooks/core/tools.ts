@@ -125,6 +125,6 @@ export function summarizeResult(answer: unknown): StepResult {
     denied,
     chars: text.length,
     hash: contentHash(text),
-    head: redactSecrets(text.slice(0, RESULT_HEAD_MAX)),
+    head: redactSecrets(text).slice(0, RESULT_HEAD_MAX),
   }
 }
