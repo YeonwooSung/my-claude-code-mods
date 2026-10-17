@@ -190,3 +190,5 @@ command-shelf/.claude-plugin/types/
 env-doctor/.claude-plugin/types/
 
 dependency-lens/.claude-plugin/types/
+
+assumption-tracker/.claude-plugin/types/

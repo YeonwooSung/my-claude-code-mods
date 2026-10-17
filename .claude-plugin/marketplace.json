@@ -78,6 +78,11 @@
       "name": "dependency-lens",
       "source": "./dependency-lens",
       "description": "Dependency Lens"
+    },
+    {
+      "name": "assumption-tracker",
+      "source": "./assumption-tracker",
+      "description": "Assumption Tracker"
     }
   ]
 }

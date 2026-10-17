@@ -1,0 +1,6 @@
+{
+  "description": "Assumption Tracker hooks module",
+  "modules": [
+    "./register.ts"
+  ]
+}

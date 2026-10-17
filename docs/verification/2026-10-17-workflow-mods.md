@@ -32,3 +32,6 @@ RED: missing version/presence inspection reproduced. GREEN: 3 core tests, 5 engi
 
 ## 8. Dependency Lens
 RED: missing manifest/lock comparison reproduced. GREEN: 3 core tests, 5 engine tests, TypeScript/manifest clean; full suite 366/366. Direct/transitive/scoped/removal/lifecycle changes, unsupported locks, malformed evidence and explicit base selection verified.
+
+## 9. Assumption Tracker
+RED: missing assumption transitions reproduced. GREEN: 3 core tests, 5 engine tests, TypeScript/manifest clean; full suite 369/369. Resolved states require evidence; reopening preserves bounded transition history. Stable IDs and masked evidence verified.
