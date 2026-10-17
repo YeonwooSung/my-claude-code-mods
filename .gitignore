@@ -174,3 +174,5 @@ model-effort-band/.claude-plugin/types/
 
 # token-run: engine-generated local declarations
 token-run/.claude-plugin/types/
+
+verify-board/.claude-plugin/types/

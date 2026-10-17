@@ -1,7 +1,7 @@
 import { readdirSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 
-const files = ['agent-profiler', 'context-inspector', 'time-machine', 'loop-detective', 'pin-memo', 'model-effort-band', 'token-run'].flatMap(mod =>
+const files = ['agent-profiler', 'context-inspector', 'time-machine', 'loop-detective', 'pin-memo', 'model-effort-band', 'token-run', 'verify-board'].flatMap(mod =>
   readdirSync(`${mod}/tests`).filter(file => file.endsWith('.test.ts') && file !== 'adapter.test.ts')
     .map(file => `./${mod}/tests/${file}`),
 ).sort()

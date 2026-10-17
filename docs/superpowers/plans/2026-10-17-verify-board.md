@@ -25,8 +25,8 @@ Verification revision comparison; unknown and denied results; concurrent edits; 
 
 **Interfaces:** `Feature.command(args: string, io: Port): Promise<string>`; `Feature.observe(observation: Observation, io: Port): Promise<void>`; JSON-safe `Feature.data`. Commands use `/verify`. Port provides cwd, file reads, argv-based processes and environment presence.
 
-- [ ] Write real behavior tests covering the primary workflow and the Review Focus cases; engine tests cover command registration, tool forwarding, isolation and persistence failure.
-- [ ] Run focused tests and observe failure caused by missing feature behavior (RED).
-- [ ] Implement analysis, bounded state, commands, adapter and standalone packaging.
-- [ ] Run focused tests, actual engine suite and TypeScript checks (GREEN); refactor only while green.
-- [ ] Run `npm test`, validate manifest and commit `feat: add verify-board mod`. Record results in `docs/verification/2026-10-17-workflow-mods.md`.
+- [x] Write real behavior tests covering the primary workflow and the Review Focus cases; engine tests cover command registration, tool forwarding, isolation and persistence failure.
+- [x] Run focused tests and observe failure caused by missing feature behavior (RED).
+- [x] Implement analysis, bounded state, commands, adapter and standalone packaging.
+- [x] Run focused tests, actual engine suite and TypeScript checks (GREEN); refactor only while green.
+- [x] Run `npm test`, validate manifest and commit `feat: add verify-board mod`. Record results in `docs/verification/2026-10-17-workflow-mods.md`.
