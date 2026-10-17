@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { newGame, act, step, decodeGame, type Game } from '../hooks/core/game.ts'
+import { newGame, act, step, score, decodeGame, type Game } from '../hooks/core/game.ts'
 
 function advance(game: Game, ticks: number): Game {
   for (let n = 0; n < ticks; n++) game = step(game)
@@ -103,4 +103,32 @@ test('reachable seeded courses remain restorable across jumps pauses deaths and 
       game = step(game)
     }
   }
+})
+
+
+test('twenty-four seeded courses survive twenty virtual minutes with legal timed jumps', () => {
+  for (let seed = 1; seed <= 24; seed++) {
+    let game = act(newGame(seed), 'jump')
+    for (let tick = 0; tick < 24000; tick++) {
+      // React only to visible approaching obstacles; never alter position or physics.
+      const speed = Math.min(1.2, 0.6 + game.ticks / 10000)
+      if (game.obstacles.some(o => o.x > 6 && o.x <= 7 + speed * 4)) game = act(game, 'jump')
+      game = step(game)
+      if (tick % 200 === 0) {
+        expect(game.phase).toBe('running')
+        expect(game.obstacles.length).toBeLessThanOrEqual(3)
+        expect(decodeGame(JSON.parse(JSON.stringify(game)))).toEqual(game)
+      }
+    }
+    expect(game.ticks).toBe(24000)
+    expect(score(game)).toBe(1200)
+  }
+})
+
+test('score remains capped when simulation continues past the maximum record', () => {
+  let game: Game = {...newGame(),phase:'running',ticks:19999979,nextSpawn:1000}
+  expect(score(game)).toBe(999998)
+  game = step(game)
+  expect(score(game)).toBe(999999)
+  expect(score(advance(game, 100))).toBe(999999)
 })

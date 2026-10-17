@@ -334,3 +334,68 @@ test('a dock-to-inline Client remount restores the paused run and restart checkp
   expect((await reset.find({key:'run-score',in:'runner'}))?.text).toContain('SCORE 0')
   expect((await reset.find({key:'run-score',in:'runner'}))?.text).toContain('BEST 1')
 })
+
+test('a paused checkpoint remounts before its blocked score read finishes',async($,on)=>{
+  let hold=false
+  let release!:(value:unknown)=>void
+  let began!:()=>void
+  const blocked=new Promise<unknown>(resolve=>{release=resolve})
+  const started=new Promise<void>(resolve=>{began=resolve})
+  setup(on,{read:async()=>{if(hold){began();return blocked};return undefined}})
+  await $.session.start(START);await command($);const ui=await mount($)
+  await ui.key({key:' '});await ui.advance(1000)
+  hold=true
+  const pausing=ui.key({key:'p'})
+  await started
+  let restored
+  try {
+    await ui.unmount()
+    restored=await mount($)
+    expect((await restored.find({key:'run-phase',in:'runner'}))?.text).toContain('PAUSED')
+    await restored.advance(5000)
+    expect((await restored.find({key:'run-score',in:'runner'}))?.text).toContain('SCORE 1')
+  } finally { hold=false;release(undefined);await pausing }
+  await restored?.unmount()
+})
+
+test('repeated Client remounts retain one run and closing clears its checkpoint',async($,on)=>{
+  setup(on);await $.session.start(START);await command($)
+  let ui=await mount($)
+  await ui.key({key:' '});await ui.advance(1000)
+  for(let n=0;n<12;n++) {
+    await ui.unmount()
+    ui=await mount($)
+    await ui.redraw()
+  }
+  await ui.advance(1000)
+  expect((await ui.find({key:'run-score',in:'runner'}))?.text).toContain('SCORE 2')
+  await command($,'close');await ui.unmount();await command($)
+  const fresh=await mount($)
+  expect((await fresh.find({key:'run-score',in:'runner'}))?.text).toContain('SCORE 0')
+  expect((await fresh.find({key:'run-score',in:'runner'}))?.text).toContain('BEST 2')
+})
+
+test('invalid game checkpoints cannot save records or poison a remounted Client',async($,on)=>{
+  const env=setup(on);await $.session.start(START);await command($);const ui=await mount($)
+  const props=(await ui.find({key:'runner'}))?.props?.props as {runId:number}
+  const base={phase:'paused',ticks:40,y:0,vy:0,distance:24,nextSpawn:50,seed:1,initialSeed:1,obstacles:[]}
+  for(const game of [{...base,phase:['paused']},{...base,ticks:Infinity},{...base,obstacles:[{x:30,width:1,height:1,label:['BUG']}]},base]) {
+    // base is structurally valid but its two-second progress exceeds this posted score.
+    await ui.post({type:'score',runId:props.runId,score:1,game} as JsonValue)
+  }
+  expect(env.saved.size).toBe(0)
+  await ui.unmount();const fresh=await mount($)
+  expect((await fresh.find({key:'run-phase',in:'runner'}))?.text).toContain('CLICK + SPACE')
+  expect((await fresh.find({key:'run-score',in:'runner'}))?.text).toContain('SCORE 0')
+})
+
+test('cancelling a streamed turn runs downstream cleanup without consuming another chunk',async($,on)=>{
+  setup(on);let cleaned=0,afterYield=0
+  on('turn.step',async function*(){try {yield {kind:'text',index:0,text:'first'};afterYield++;yield {kind:'text',index:0,text:'second'};return RESULT} finally {cleaned++}})
+  await $.session.start(START);await $.turn.start({turnId:'t1',text:'original'})
+  const stream=$.turn.step(STEP)
+  expect(await stream.next()).toEqual({done:false,value:{kind:'text',index:0,text:'first'}})
+  await stream.return(undefined as never)
+  expect(cleaned).toBe(1)
+  expect(afterYield).toBe(0)
+})
