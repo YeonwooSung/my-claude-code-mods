@@ -1,4 +1,6 @@
 import { expect, test } from 'claude-code/testing'
+import { Recorder } from '../hooks/core/timeline.ts'
+import { ChunkWriter } from '../hooks/core/store.ts'
 
 import { parseTestOutput, sameFile, testIdentity } from '../hooks/core/testparse.ts'
 
@@ -102,4 +104,16 @@ test('long inputs stay fast and still find locations in the middle', () => {
   const mid = time('x'.repeat(100_000) + ' src/app.js:7 ' + 'y'.repeat(300_000))
   expect(mid.ms).toBeLessThan(500)
   expect(mid.run.locations).toContainEqual({ file: 'src/app.js', line: 7 })
+})
+test('failure credentials are masked before timeline serialization without changing counts or identity', () => {
+  const run = parseTestOutput('not ok 1 - API_KEY=FAKE_TEST_NAME\n# pass 0\n# fail 1', true, { command: 'node --test', cwd: '/repo' })
+  expect(run.failures).toEqual([{ name: 'API_KEY=[REDACTED]' }])
+  expect(run.failed).toBe(1)
+  expect(run.identity).toEqual(testIdentity('node --test', '/repo'))
+  const r = new Recorder({ sessionId: 'audit', root: '/repo', startedAt: 0, loadId: 'test' })
+  r.finish(r.begin({ id: 'test', tool: 'Bash', at: 0 }), 1, { test: run })
+  const writer = new ChunkWriter('audit')
+  const bodies = r.drain().map(record => writer.add(record).body).join('')
+  expect(bodies).not.toContain('FAKE_TEST_NAME')
+  expect(bodies).toContain('[REDACTED]')
 })

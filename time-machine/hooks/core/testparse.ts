@@ -1,5 +1,6 @@
 import type { TestFailure, TestRun } from './types.ts'
 import { contentHash } from './hash.ts'
+import { redactSecrets } from './redact.ts'
 
 export function testIdentity(command: string, cwd: string): NonNullable<TestRun['identity']> {
   let normalized = ''
@@ -147,7 +148,7 @@ export function parseTestOutput(text: string, isError: boolean, invocation?: { c
   const found = parseCargo(text) ?? parsePytest(text) ?? parseJest(text) ?? parseGo(text) ?? parseNodeTest(text)
   const window = scanWindow(text)
   const locations = locationsOf(window)
-  const failures = (found?.failures ?? []).slice(0, MAX_FAILURES).map(f => ({ ...f }))
+  const failures = (found?.failures ?? []).slice(0, MAX_FAILURES).map(f => ({ ...f, name: redactSecrets(f.name) }))
   for (const loc of locations) {
     const failure = failures.find(f => f.file !== undefined && f.line === undefined && sameFile(f.file, loc.file))
     if (failure) failure.line = loc.line

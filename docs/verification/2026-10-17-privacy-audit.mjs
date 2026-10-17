@@ -24,7 +24,7 @@ const { renderReport: contextReport } = await mod('context-inspector/hooks/core/
 const { redactSecrets: contextRedact } = await mod('context-inspector/hooks/core/redact.ts')
 const outputs = []
 // Each repaired group checks absence; untouched groups still characterize the original finding.
-const protectedGroups = new Set(['AP-1', 'TM-4'])
+const protectedGroups = new Set(['AP-1', 'TM-4', 'TM-3'])
 function contains(label, value, secret) {
   const text = typeof value === 'string' ? value : JSON.stringify(value)
   const protectedCase = protectedGroups.has(label.split(':')[0])

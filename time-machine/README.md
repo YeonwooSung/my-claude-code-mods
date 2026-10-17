@@ -115,7 +115,7 @@ v2 design sketch (not implemented): (1) a model-response cassette where a `turn.
   sessions/<sessionId>/<load>-<n>.jsonl
 ```
 
-JSONL record kinds: `session`, `turn`, `step`, `model`, `branch`. A chunk rolls over to the next number past 256 KiB. A step's tool input is cut at 4 KiB per string field and the result head at 2 KiB (hash and length are kept), with secrets masked. The full `content` of Write and `old/new_string` of Edit are in the snapshot.
+JSONL record kinds: `session`, `turn`, `step`, `model`, `branch`. A chunk rolls over to the next number past 256 KiB. A step's tool input is cut at 4 KiB per string field and the result head at 2 KiB (hash and length are kept), with secrets masked. Parsed failure names are also masked before being stored; test counts and invocation hashes are unchanged. The full `content` of Write and `old/new_string` of Edit are in the snapshot.
 
 ## Environments
 

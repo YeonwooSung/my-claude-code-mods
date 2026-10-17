@@ -115,7 +115,7 @@ v2 설계 요약(구현하지 않음): (1) `turn.step` 훅이 기록된 청크�
   sessions/<sessionId>/<load>-<n>.jsonl
 ```
 
-JSONL 레코드 종류: `session`, `turn`, `step`, `model`, `branch`. 청크는 256 KiB를 넘으면 다음 번호로 넘어간다. step의 도구 입력은 문자열 필드마다 4 KiB, 결과 head는 2 KiB에서 자르며(해시와 길이는 남김) 비밀값은 마스킹한다. Write의 `content`, Edit의 `old/new_string` 전체는 스냅샷에 있다.
+JSONL 레코드 종류: `session`, `turn`, `step`, `model`, `branch`. 청크는 256 KiB를 넘으면 다음 번호로 넘어간다. step의 도구 입력은 문자열 필드마다 4 KiB, 결과 head는 2 KiB에서 자르며(해시와 길이는 남김) 비밀값은 마스킹한다. 실패 테스트 이름도 JSONL 저장 전에 마스킹하며 테스트 수치와 실행 동일성 판정용 명령 해시는 유지한다. Write의 `content`, Edit의 `old/new_string` 전체는 스냅샷에 있다.
 
 ## 실행 환경
 
