@@ -48,6 +48,11 @@
       "name": "scope-guard",
       "source": "./scope-guard",
       "description": "Scope Guard"
+    },
+    {
+      "name": "blast-radius",
+      "source": "./blast-radius",
+      "description": "Blast Radius"
     }
   ]
 }

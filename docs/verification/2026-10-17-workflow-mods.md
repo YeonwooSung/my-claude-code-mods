@@ -14,3 +14,6 @@ Ruling: The engine statically requires a top-level register function and top-lev
 
 ## 2. Scope Guard
 RED: missing scope analysis reproduced. GREEN: 3 core tests, 5 engine tests; full suite 347/347. Initial typecheck found TS2367 in the generated adapter; fixed in a follow-up commit after fresh typecheck. Scope warnings preserve pre-existing changes and both rename paths.
+
+## 3. Blast Radius
+RED: missing reverse-dependency feature reproduced. GREEN: 3 core tests, 5 engine tests, TypeScript and manifest clean; full suite 350/350. Tests include cycles, indirect test consumers, deleted targets, JS-to-TS and index resolution, unresolved aliases and traversal rejection.

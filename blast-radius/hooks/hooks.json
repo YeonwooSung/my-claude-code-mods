@@ -1,0 +1,6 @@
+{
+  "description": "Blast Radius hooks module",
+  "modules": [
+    "./register.ts"
+  ]
+}
