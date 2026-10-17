@@ -4,7 +4,7 @@ A small, fully local ASCII runner for Claude Code. Jump over BUG, 429 and TIMEOU
 
 ## Install and start
 
-Install while connected; after loading, the game needs no network or model calls. The mod uses the function-hooks/Client API verified in engine tests with Claude Code **2.1.296, 2.1.299, 2.1.300 and 2.1.301**, and in real terminal sessions with **2.1.301**. Older builds without Mods support cannot load it.
+Install while connected; after loading, the game needs no network or model calls. The mod uses the function-hooks/Client API verified in engine tests with Claude Code **2.1.296, 2.1.299, 2.1.300 and 2.1.301**, and in real terminal sessions with **2.1.296 and 2.1.301**. Older builds without Mods support cannot load it.
 
 ```sh
 claude plugin marketplace add YeonwooSung/my-claude-code-mods
@@ -69,4 +69,4 @@ python3 -m venv /tmp/token-run-qa
 # Add --combined to load all seven mods together.
 ```
 
-Both solo and combined runs passed 19 checkpoints on 2.1.301. Artifacts include ANSI output, decoded screen snapshots and result.json. Native Desktop GUI rendering has not been checked; Desktop coverage is engine render-tree coverage. See the [verification report](../docs/verification/2026-10-17-token-run.md) for evidence and limits.
+Solo runs on 2.1.296/2.1.301 and a combined run on 2.1.301 passed 19 checkpoints each. Artifacts include ANSI output, decoded screen snapshots and result.json. Native Desktop GUI rendering has not been checked; Desktop coverage is engine render-tree coverage. See the [verification report](../docs/verification/2026-10-17-token-run.md) for evidence and limits.

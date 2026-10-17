@@ -32,7 +32,7 @@ npm run typecheck         # requires engine-generated declarations in each .clau
 | Pin Memo engine suite | Verified with Claude Code 2.1.292; render trees and Button presses on terminal/Desktop |
 | Loop Detective engine suite | Verified with Claude Code 2.1.280; TypeScript checks use local 2.1.292 declarations |
 | Model Effort Band engine suite | Verified with Claude Code 2.1.292; terminal/Desktop render trees, live pixels unverified |
-| Token Run engine suite | Engine tests: 2.1.296/299/300/301; real terminal 2.1.301 solo + all seven mods; Desktop GUI unverified |
+| Token Run engine suite | Engine tests: 2.1.296/299/300/301; real terminal 2.1.296/301 solo + 2.1.301 all seven mods; Desktop GUI unverified |
 | Early-access Claude Code 2.1.280 | Profiler works; Context Inspector lacks `session.append`, and Time Machine's per-test options are ignored |
 | Live terminal/desktop UI and simultaneous mods | Requires a separate interactive integration run; unit suites do not establish UI compatibility |
 
