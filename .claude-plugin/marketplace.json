@@ -68,6 +68,11 @@
       "name": "command-shelf",
       "source": "./command-shelf",
       "description": "Command Shelf"
+    },
+    {
+      "name": "env-doctor",
+      "source": "./env-doctor",
+      "description": "Env Doctor"
     }
   ]
 }

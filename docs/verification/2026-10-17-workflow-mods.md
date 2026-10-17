@@ -26,3 +26,6 @@ RED: missing handoff feature reproduced. GREEN: 3 core tests, 5 engine tests, Ty
 
 ## 6. Command Shelf
 RED: missing command retention/replay feature reproduced. GREEN: 3 core tests, 6 engine tests, TypeScript/manifest clean; full suite 360/360. Engine test confirms explicit replay reaches Bash once, permission denial is preserved, and observation does not deadlock. Environment values are deliberately not captured; original cwd is bound and secret-bearing commands are excluded.
+
+## 7. Env Doctor
+RED: missing version/presence inspection reproduced. GREEN: 3 core tests, 5 engine tests, TypeScript/manifest clean; full suite 363/363. Conservative semver subset, unavailable tools/malformed manifests, environment presence privacy and session-isolated required names verified.

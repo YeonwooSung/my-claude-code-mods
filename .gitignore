@@ -186,3 +186,5 @@ decision-ledger/.claude-plugin/types/
 handoff-pack/.claude-plugin/types/
 
 command-shelf/.claude-plugin/types/
+
+env-doctor/.claude-plugin/types/

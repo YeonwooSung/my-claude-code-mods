@@ -8,7 +8,7 @@
   "scripts": {
     "test": "node scripts/test-core.mjs",
     "test:adapters": "node scripts/test-adapters.mjs",
-    "typecheck": "tsc -p agent-profiler && tsc -p context-inspector && tsc -p time-machine && tsc -p loop-detective && tsc -p pin-memo && tsc -p model-effort-band && tsc -p token-run && tsc -p verify-board && tsc -p scope-guard && tsc -p blast-radius && tsc -p decision-ledger && tsc -p handoff-pack && tsc -p command-shelf",
+    "typecheck": "tsc -p agent-profiler && tsc -p context-inspector && tsc -p time-machine && tsc -p loop-detective && tsc -p pin-memo && tsc -p model-effort-band && tsc -p token-run && tsc -p verify-board && tsc -p scope-guard && tsc -p blast-radius && tsc -p decision-ledger && tsc -p handoff-pack && tsc -p command-shelf && tsc -p env-doctor",
     "test:privacy": "node scripts/sync-redactors.mjs --check && node --experimental-transform-types scripts/test-redaction.mjs && node --experimental-transform-types docs/verification/2026-10-17-privacy-audit.mjs"
   },
   "devDependencies": {

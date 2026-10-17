@@ -1,0 +1,6 @@
+{
+  "description": "Env Doctor hooks module",
+  "modules": [
+    "./register.ts"
+  ]
+}
