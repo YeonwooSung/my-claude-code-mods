@@ -1,11 +1,21 @@
 import { expect, test } from 'claude-code/testing'
-
+import { renderIsolatedPlan } from '../hooks/core/render.ts'
 import { why } from '../hooks/core/causality.ts'
 import { compare, compareOutputs } from '../hooks/core/compare.ts'
 import { circled, renderCompare, renderRerun, renderRestorePlan, renderSessions, renderStep, renderTimeline, renderWhy, statusLine, testSummary } from '../hooks/core/render.ts'
 import { Recorder } from '../hooks/core/timeline.ts'
 import { testIdentity } from '../hooks/core/testparse.ts'
 import type { SnapshotRef, TestRun } from '../hooks/core/types.ts'
+
+test('isolated rerun preview masks the raw execution command', () => {
+  const r = new Recorder({ sessionId: 'audit', root: '/r', startedAt: 0, loadId: 'L' })
+  const step = r.begin({ id: 'secret', tool: 'Bash', at: 0 })
+  const command = 'API_KEY=FAKE_RERUN_UI npm test'
+  const shown = renderIsolatedPlan(step, command, undefined)
+  expect(shown).not.toContain('FAKE_RERUN_UI')
+  expect(shown).toContain('$ API_KEY=[REDACTED] npm test')
+})
+
 
 const session = { sessionId: '8201ea2b-079a', root: '/r', startedAt: 1, loadId: 'L' }
 const snap = (commit: string, ...paths: string[]): SnapshotRef => ({ commit, changed: true, files: paths.map(path => ({ status: 'M', path })), filesTotal: paths.length, ms: 41 })

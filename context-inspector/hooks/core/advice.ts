@@ -3,6 +3,7 @@ import type { Rereads } from './analyze/rereads.ts'
 import type { Cluster } from './analyze/similar.ts'
 import { fmtCount } from './format.ts'
 import type { ContextItem } from './types.ts'
+import { redactSecrets } from './redact.ts'
 
 export type Severity = 'high' | 'medium' | 'low'
 export type Advice = { id: string; severity: Severity; title: string; evidence: string; action: string; savings: number }
@@ -28,7 +29,7 @@ export function severityOf(savings: number): Severity {
 const tok = (n: number): string => `≈${fmtCount(n)}`
 const base = (path: string): string => path.split('/').filter(Boolean).at(-1) ?? path
 const short = (s: string): string => {
-  const line = s.replace(/\s+/g, ' ').trim()
+  const line = redactSecrets(s).replace(/\s+/g, ' ').trim()
   return line.length > 40 ? `${line.slice(0, 39)}…` : line
 }
 

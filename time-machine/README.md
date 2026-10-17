@@ -144,6 +144,9 @@ Storage state appears in the timeline, pane and status line: `recording`, `degra
 
 Secret masking is best-effort and covers credential flags, sensitive headers, URL passwords, curl/mysql credentials and common credential fields in JSON strings. It does not sanitize snapshot file contents or retroactively rewrite saved files. Review files before sharing.
 
+
+Reports and panels mask supported credential formats before truncation. Time Machine rerun previews mask displayed commands while replay uses the original in-memory input. Existing logs and snapshot file contents are not rewritten.
+
 ## Development
 
 ```bash

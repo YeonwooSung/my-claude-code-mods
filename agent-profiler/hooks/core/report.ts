@@ -1,5 +1,6 @@
 import type { Category, Summary } from './analyze.ts'
-import { bar, clip, fmtCount, fmtMs, pct } from './format.ts'
+import { bar, clip as clipText, fmtCount, fmtMs, pct } from './format.ts'
+import { redactSecrets } from './redact.ts'
 import type { RunningItem } from './profiler.ts'
 
 const ORDER: Category[] = ['model', 'tool', 'subagent', 'engine']
@@ -10,6 +11,7 @@ const LABEL: Record<Category, string> = {
   engine: 'Engine/other (inferred)',
 }
 const SHORT: Record<Category, string> = { model: 'model', tool: 'tools', subagent: 'subagents', engine: 'engine/other' }
+const clip = (text: string, n: number): string => clipText(redactSecrets(text), n)
 
 export type PaneLine = { text: string; bold?: boolean; dim?: boolean }
 
@@ -18,7 +20,7 @@ export function renderReport(sum: Summary): string {
   const lines = [`Agent Profiler · ${sum.scope === 'turn' ? 'last turn' : 'session'} · ${sum.turns} turn(s) · ${fmtMs(wall)} agent time`]
   if (sum.turns === 0) {
     lines.push('No turns recorded yet.')
-    return lines.join('\n')
+    return lines.map(redactSecrets).join('\n')
   }
   if (sum.scope === 'session' && sum.droppedTurns > 0) {
     lines.push(`Covers the last ${sum.turns} turn(s); ${sum.droppedTurns} older turn(s) dropped (already exported).`)
@@ -72,7 +74,7 @@ export function renderReport(sum: Summary): string {
     "Model time is how long the agent waited for the response, not the model's internal compute time.",
   )
   if (sum.incomplete) lines.push(`${sum.incomplete} span(s) still open.`)
-  return lines.join('\n')
+  return lines.map(redactSecrets).join('\n')
 }
 
 export function statusLine(sum: Summary, running: RunningItem[]): string {

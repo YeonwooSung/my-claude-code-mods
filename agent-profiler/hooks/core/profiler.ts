@@ -11,7 +11,7 @@ export function isAgentTool(tool: string): boolean {
 
 export function toolLabel(tool: ToolRec): string {
   const detail = tool.input.command ?? tool.input.path ?? tool.input.pattern ?? tool.input.subagentType ?? ''
-  return detail ? `${tool.tool} ${detail}` : tool.tool
+  return redactSecrets(detail ? `${tool.tool} ${detail}` : tool.tool)
 }
 
 function text(value: unknown, n: number): string | undefined {

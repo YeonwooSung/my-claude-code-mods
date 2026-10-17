@@ -50,6 +50,22 @@ test('failed recording survives clear and is retried after the session context i
 
 const PYTEST_FAIL = `FAILED tests/test_auth.py::test_login - AssertionError\ntests/test_auth.py:12: AssertionError\n========================= 1 failed, 4 passed in 0.10s =========================`
 
+test('rerun displays are masked but the replayed tool receives the original command', async ($, on) => {
+  const seen: string[] = []
+  world(on, new Map(), e => {
+    seen.push(String((e as unknown as { command?: string }).command ?? ''))
+    return { result: {}, text: 'ok' }
+  })
+  const command = 'API_KEY=FAKE_RERUN_UI pytest /r/tests'
+  await $.session.start({ cwd: '/r', surface: null, isInteractive: false } as never)
+  await $.tool.call({ tool: 'Bash', command, tool_use_id: 'private' } as never)
+  for (const args of ['rerun 1 --isolated', 'rerun 1 --isolated --yes', 'rerun 1 --write']) {
+    const text = String((await $.command.run({ command: 'tm', args, origin: { kind: 'composer' } } as never)).text)
+    expect(text).not.toContain('FAKE_RERUN_UI')
+  }
+  expect(seen).toEqual([command, command])
+})
+
 // The runner's `$` has no `process`, so git is unavailable here: these tests run the "snapshots off" path.
 function world(on: On, writes: Map<string, string>, toolAnswer?: (e: { tool: string; tool_use_id?: string }) => unknown, denyWrites?: () => boolean): void {
   mock.env(on, { HOME: '/Users/u' })

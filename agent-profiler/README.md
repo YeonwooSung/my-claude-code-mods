@@ -136,6 +136,9 @@ Span names follow the GenAI semantic conventions: `chat <model>`, `execute_tool 
 | VS Code chat panel | yes | no (drawing is not shown) | yes |
 | `claude -p` / SDK | yes | no | yes |
 
+
+Reports, panels and display labels mask supported credential formats before truncation; this does not change the underlying analysis. Existing saved files are not rewritten.
+
 ## Limitations
 
 - Time inside the model server (queueing, prefill, decoding, GPU) cannot be broken down. TTFT lumps network, queueing and prefill together.

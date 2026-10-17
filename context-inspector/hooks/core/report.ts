@@ -1,4 +1,5 @@
-import { bar, clip, fmtCount, pct } from './format.ts'
+import { bar, clip as clipText, fmtCount, pct } from './format.ts'
+import { redactSecrets } from './redact.ts'
 import type { Scope, Summary } from './summary.ts'
 import { MAIN } from './types.ts'
 
@@ -11,6 +12,7 @@ const tok = (n: number): string => `≈${fmtCount(n)}`
 const signed = (n: number): string => `${n >= 0 ? '+' : '−'}${fmtCount(Math.abs(n))}`
 const pad = (s: string, n: number): string => (s.length >= n ? s : s + ' '.repeat(n - s.length))
 const base = (path: string): string => path.split('/').filter(Boolean).at(-1) ?? path
+const clip = (text: string, n: number): string => clipText(redactSecrets(text), n)
 
 export function parseArgs(args: string): { section: Section; scope: Scope; unknown?: string } {
   const words = args.trim().split(/\s+/).filter(w => w !== '')
@@ -130,7 +132,7 @@ export function renderReport(sum: Summary, section: Section = 'overview', usage?
   const n = section === 'overview' ? 3 : 15
   const blocks: string[][] = [header(sum, usage)]
   for (const [name, part] of PARTS) if (section === 'overview' || section === name) blocks.push(part(sum, n))
-  return blocks.map(b => b.join('\n')).join('\n\n')
+  return blocks.map(b => b.map(redactSecrets).join('\n')).join('\n\n')
 }
 
 export function statusLine(sum: Summary, percent?: number): string {

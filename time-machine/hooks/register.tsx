@@ -453,12 +453,12 @@ async function rerun($: EngineInterface, c: Ctx, n: number, write: boolean, isol
     if (step.tool !== 'Bash') return 'time-machine: --isolated replays Bash steps only'
     const command = String(input.command ?? '')
     const problem = isolationProblem(command, c.root)
-    if (yes && problem) return `$ ${command}\ntime-machine: ${problem}`
+    if (yes && problem) return `$ ${redactSecrets(command)}\ntime-machine: ${problem}`
     const git = await ensureGit($, c)
     const before = git ? c.rec.snapshotAt(step.parent) : undefined
     const blocked = !git ? `snapshots are off (${c.off ?? 'not ready'})` : !before?.snapshot ? `no snapshot before step ${n}` : problem
     if (!yes) return renderIsolatedPlan(step, command, before, blocked)
-    if (!git || !before?.snapshot) return `$ ${command}\ntime-machine: ${blocked}`
+    if (!git || !before?.snapshot) return `$ ${redactSecrets(command)}\ntime-machine: ${blocked}`
     const tmpRoot = `${c.base}/tmp`
     const tmp = `${tmpRoot}/${LOAD_ID}-${n}-${Date.now().toString(36)}`
     const run = runnerOf($)
@@ -472,7 +472,7 @@ async function rerun($: EngineInterface, c: Ctx, n: number, write: boolean, isol
       const text = [r.stdout, r.stderr].filter(s => s !== '').join('\n')
       const now = step.test ? parseTestOutput(text, r.exitCode !== 0) : undefined
       const where = `snapshot copy (not a sandbox) of ${circled(before.n)}'s snapshot; ignored files such as dependencies are not in the copy`
-      out = [`$ ${command}`, renderRerun(step, compareOutputs(step.result, text, step.test, now), where)].join('\n')
+      out = [`$ ${redactSecrets(command)}`, renderRerun(step, compareOutputs(step.result, text, step.test, now), where)].join('\n')
     } finally {
       if (isInside(tmp, tmpRoot)) await run(['rm', '-rf', tmp, `${tmp}.index`]).catch(() => undefined)
     }
@@ -706,9 +706,9 @@ export const register: Register = (on, options) => {
       const sub = changesFiles(args)
       const kind = e.origin?.kind ?? 'unknown'
       if (sub !== undefined && !TYPED.has(kind)) return { text: `time-machine: ${sub} changes files or runs commands and only runs when you type it (this came from ${kind})` }
-      return { text: await runTm($, c, args) }
+      return { text: redactSecrets(await runTm($, c, args)) }
     } catch (error) {
-      return { text: `time-machine: ${message(error)}` }
+      return { text: `time-machine: ${redactSecrets(message(error))}` }
     }
   })
 
@@ -723,7 +723,7 @@ export const register: Register = (on, options) => {
     try {
       lines = ctx ? renderTimeline(ctx.rec, { ...(ctx.off ? { off: ctx.off } : {}), snapMs: ctx.snapMs, recording: recordingStatus(ctx) }).split('\n') : ['Time Machine: not recording']
     } catch (error) {
-      lines = [`time-machine: ${message(error)}`]
+      lines = [`time-machine: ${redactSecrets(message(error))}`]
     }
     const width = e.props.bodyColumns ?? 80
     return (

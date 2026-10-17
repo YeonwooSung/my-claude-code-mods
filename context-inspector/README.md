@@ -77,6 +77,9 @@ Errors and user identifiers among compaction entities, and item contents, are ke
 - Advice such as large-read, large-bash, agent-verbose and reread-unchanged covers everything that happened in the session (habit advice), including output a later compaction removed. It differs from the status line's waste.
 - When the ledger hits its cap and drops items, calibration intervals spanning dropped items are left out of the k calculation.
 
+
+Reports, panels and display labels mask supported credential formats before truncation; this does not change the underlying analysis. Existing saved files are not rewritten.
+
 ## Development
 
 ```bash

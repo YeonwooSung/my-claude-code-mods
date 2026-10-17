@@ -1,5 +1,5 @@
 // Run from the repository root: node --experimental-transform-types docs/verification/2026-10-17-privacy-audit.mjs
-// Every credential is fake. These checks characterize current leaks; they are not fix regressions.
+// Every credential is fake. Repaired groups assert absence; the original vulnerable behavior is preserved in Git history.
 import assert from 'node:assert/strict'
 import { pathToFileURL } from 'node:url'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
@@ -24,7 +24,7 @@ const { renderReport: contextReport } = await mod('context-inspector/hooks/core/
 const { redactSecrets: contextRedact } = await mod('context-inspector/hooks/core/redact.ts')
 const outputs = []
 // Each repaired group checks absence; untouched groups still characterize the original finding.
-const protectedGroups = new Set(['AP-1', 'TM-4', 'TM-3', 'AP-2', 'TM-1', 'LD-1', 'AP-3', 'TM-2', 'UI-AP', 'CI-1'])
+const protectedGroups = new Set(['AP-1', 'TM-4', 'TM-3', 'AP-2', 'TM-1', 'LD-1', 'AP-3', 'TM-2', 'UI-AP', 'CI-1', 'UI-CI'])
 function contains(label, value, secret) {
   const text = typeof value === 'string' ? value : JSON.stringify(value)
   const protectedCase = protectedGroups.has(label.split(':')[0])

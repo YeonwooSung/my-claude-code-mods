@@ -5,6 +5,18 @@ import { Profiler } from '../hooks/core/profiler.ts'
 import { paneLines, renderReport, statusLine } from '../hooks/core/report.ts'
 import { session } from './fixtures.ts'
 
+test('reports, running panes and status mask raw labels before clipping', () => {
+  const p = session()
+  const command = '--password "FAKE_PROFILER_UI' + 'x'.repeat(500) + '" run'
+  p.toolStart(20_000, { id: 'secret', tool: 'Bash', input: { command } })
+  const sum = summarize(p.snapshot(23_000))
+  const running = p.running(23_000)
+  for (const output of [renderReport(sum), statusLine(sum, running), ...paneLines(sum, running, 80).map(line => line.text)])
+    expect(output).not.toContain('FAKE_PROFILER_UI')
+  expect(renderReport(sum)).toContain('[REDACTED]')
+  expect(p.snapshot(23_000).tools.find(t => t.id === 'secret')!.input.command).toBe(command)
+})
+
 test('report names categories, the slow call, re-reads and the observability legend', () => {
   const text = renderReport(summarize(session().snapshot(20_000)))
   expect(text).toContain('1 turn(s)')

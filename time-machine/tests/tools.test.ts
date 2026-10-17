@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { compareOutputs } from '../hooks/core/compare.ts'
+import { callInput, isMutating, relPath, resultText, summarizeInput, summarizeResult, targetOf } from '../hooks/core/tools.ts'
 
 test('result heads and rerun comparisons mask long quoted secrets before clipping', () => {
   const raw = '--password "FAKE_LONG_SECRET' + 'x'.repeat(3000) + '" --verbose'
@@ -23,7 +24,6 @@ test('token flags and serialized credentials make stored inputs lossy', () => {
   }
 })
 
-import { callInput, isMutating, relPath, resultText, summarizeInput, summarizeResult, targetOf } from '../hooks/core/tools.ts'
 
 test('secret keys mask entire values in nested objects and arrays without masking ordinary fields', () => {
   const raw = { api_key: 'demo', nested: [{ password: 'pw', Authorization: { bearer: 'secret' }, accessToken: 123, refresh_token: null, 'private-key': ['x'] }], token_count: 12, keyboard: 'keep' }

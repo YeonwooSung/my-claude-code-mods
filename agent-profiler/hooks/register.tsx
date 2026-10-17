@@ -7,7 +7,7 @@ import { toOtlp, type OtlpRequest } from './core/otlp.ts'
 import { Profiler, summarizeInput, toolOutcome } from './core/profiler.ts'
 import { paneLines, renderReport, statusLine } from './core/report.ts'
 
-const VERSION = '0.1.4'
+const VERSION = '0.1.5'
 const PANE = 'agent-profiler'
 const COMMANDS = [
   { name: 'profile', description: "Show where this session's time went (model wait, tools, subagents, tests, re-reads); 'turn' for the last turn" },

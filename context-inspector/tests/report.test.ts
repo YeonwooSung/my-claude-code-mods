@@ -9,6 +9,17 @@ import { summarize } from '../hooks/core/summary.ts'
 import { okLines, promptRow, readFile, runBash } from './fixtures.ts'
 import type { NewItem } from '../hooks/core/ledger.ts'
 
+test('occupants, advice and panes mask commands before clipping while retaining analysis inputs', () => {
+  const l = new Ledger()
+  const command = '--password "FAKE_CONTEXT_UI' + 'x'.repeat(300) + '" run'
+  runBash(l, 'secret', command, 'x'.repeat(24_000))
+  const sum = summarize(l.snapshot(), 'all')
+  for (const output of [renderReport(sum), renderReport(sum, 'occupants'), renderReport(sum, 'advice'), JSON.stringify(sum.advice), ...paneLines(sum, 80).map(line => line.text)])
+    expect(output).not.toContain('FAKE_CONTEXT_UI')
+  expect(renderReport(sum, 'occupants')).toContain('[REDACTED]')
+  expect(l.snapshot().items[0]!.target!.value).toBe(command)
+})
+
 function busy(): Ledger {
   const l = new Ledger()
   ingestAppend(l, promptRow('fix the flaky test'))

@@ -5,7 +5,7 @@ import type { Recorder } from './timeline.ts'
 import type { FileChange, Step, TestRun } from './types.ts'
 
 const clip = (text: string, n: number): string => {
-  const line = text.replace(/[\r\n\t]+/g, ' ')
+  const line = redactSecrets(text).replace(/[\r\n\t]+/g, ' ')
   return line.length <= n ? line : `${line.slice(0, Math.max(0, n - 1))}…`
 }
 
@@ -86,7 +86,7 @@ export function renderTimeline(rec: Recorder, o: TimelineOptions = {}): string {
     lines.push(`${last ? '└──' : '├──'} ${circled(step.n)} ${clip(label(step), 60)}${agent}${tag}`)
     for (const note of notes(step)) lines.push(`${last ? ' ' : '│'}       └── ${note}`)
   })
-  return lines.join('\n')
+  return lines.map(redactSecrets).join('\n')
 }
 
 export function renderStep(step: Step): string {
@@ -119,7 +119,7 @@ export function renderStep(step: Step): string {
     lines.push(`test (${step.test.framework}): ${testSummary(step.test)}`)
     for (const f of step.test.failures.slice(0, 10)) lines.push(`  ✗ ${clip(redactSecrets(f.name), 200)}${f.file ? ` (${f.file}${f.line !== undefined ? `:${f.line}` : ''})` : ''}`)
   }
-  return lines.join('\n')
+  return lines.map(redactSecrets).join('\n')
 }
 
 // `labels(n)` names a step for the fixed-by line (`⑤ Edit middleware.py`); without it, the bare number.
@@ -146,7 +146,7 @@ export function renderWhy(w: Why, labels?: (n: number) => string | undefined): s
   }
   if (w.improved) lines.push(`Improved: ${w.improved.from} → ${w.improved.to} failed at ${circled(w.improved.run.n)}`)
   lines.push('(inferred from failure-output mentions, recency and change counts — not proof)')
-  return lines.join('\n')
+  return lines.map(redactSecrets).join('\n')
 }
 
 export function renderCompare(nameA: string, nameB: string, c: Compared, stat?: string): string {
@@ -158,7 +158,7 @@ export function renderCompare(nameA: string, nameB: string, c: Compared, stat?: 
   const test = (s: Step | undefined): string => (s?.test ? testSummary(s.test) : 'no test run')
   lines.push(`Last test: ${nameA} ${test(c.lastTestA)} · ${nameB} ${test(c.lastTestB)}`)
   if (stat !== undefined) lines.push(`Files (${nameA} head → ${nameB} head):`, stat.trimEnd() || '  (identical)')
-  return lines.join('\n')
+  return lines.map(redactSecrets).join('\n')
 }
 
 export function renderRerun(step: Step, c: OutputComparison, where: string): string {
@@ -170,7 +170,7 @@ export function renderRerun(step: Step, c: OutputComparison, where: string): str
     for (const line of c.added) lines.push(`  + ${clip(line, 160)}`)
   }
   if (c.was && c.now) lines.push(`Test: ${testSummary(c.was)} → ${testSummary(c.now)}`)
-  return lines.join('\n')
+  return lines.map(redactSecrets).join('\n')
 }
 
 // `/tm rerun n --isolated` without `--yes`: the command first, then where it would run and why it may not.
@@ -178,12 +178,12 @@ export function renderRerun(step: Step, c: OutputComparison, where: string): str
 export function renderIsolatedPlan(step: Step, command: string, before: Step | undefined, blocked?: string): string {
   const copy = before?.snapshot ? `a throwaway copy of ${circled(before.n)}'s snapshot (${before.snapshot.commit.slice(0, 7)})` : 'a throwaway copy of the snapshot before it'
   const lines = [
-    `$ ${command}`,
+    `$ ${redactSecrets(command)}`,
     `Dry run of ${circled(step.n)} ${label(step)}: nothing ran. With --yes this runs through \`sh -lc\` in ${copy}, without a permission prompt.`,
     'Snapshot copy only, not a sandbox: environment variables, your home directory, absolute paths and external services remain accessible. Ignored files such as dependencies are not in the copy; project changes are recorded as external steps.',
   ]
   lines.push(blocked !== undefined ? `It would not run now: ${blocked}` : `Run /tm rerun ${step.n} --isolated --yes to run it.`)
-  return lines.join('\n')
+  return lines.map(redactSecrets).join('\n')
 }
 
 // `step` is the step asked for; `target` the step whose snapshot is used (the same, or the nearest earlier one).
@@ -202,7 +202,7 @@ export function renderRestorePlan(step: Step, target: Step, files: readonly File
   } else {
     lines.push(branch !== undefined ? `Run /tm branch ${n} ${branch} --yes to apply.` : `Run /tm restore ${n} --yes to apply (the current state is snapshotted first, so it can be undone).`)
   }
-  return lines.join('\n')
+  return lines.map(redactSecrets).join('\n')
 }
 
 export function renderSessions(rows: readonly { id: string; startedAt: number; current: boolean }[]): string {
