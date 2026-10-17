@@ -5,7 +5,7 @@ import { GitError, ignoredConflicts, ignoredDirsToExpand, isInside, parseNameSta
 type Call = { argv: readonly string[]; env?: Record<string, string>; cwd?: string }
 
 // `rev-parse --verify` (a ref lookup) is its own subcommand here, `verify`; unanswered, the ref is absent.
-const subOf = (args: readonly string[]): string => (args[0] === 'rev-parse' && args[1] === '--verify' ? 'verify' : (args[0] ?? ''))
+const subOf = (args: readonly string[]): string => (args[0] === 'rev-parse' && args[1] === '--verify' ? 'verify' : args[0] === 'ls-files' && args.includes('--cached') ? 'ignored-tracked' : (args[0] ?? ''))
 
 // A scripted git: answers by subcommand, records every call.
 function fake(answer: (sub: string, args: readonly string[]) => Partial<RunResult> | undefined = () => undefined) {
@@ -40,19 +40,19 @@ test('the first snapshot commits the tree and counts its files', async () => {
   })
   const s = await G(f).snapshot(undefined, 'baseline', 'refs/tm/s1/main')
   expect(s).toEqual({ commit: 'commit1', changed: true, files: [], filesTotal: 2 })
-  expect(f.subs()).toEqual(['verify', 'add', 'write-tree', 'commit-tree', 'update-ref', 'ls-tree'])
+  expect(f.subs()).toEqual(['verify', 'ignored-tracked', 'add', 'write-tree', 'commit-tree', 'update-ref', 'ls-tree'])
   const first = f.calls[0]!
   expect(first.argv.slice(0, 3)).toEqual(['git', '--git-dir=/s/shadow.git', '--work-tree=/r'])
   expect(first.env!.GIT_INDEX_FILE).toBe('/s/index/s1')
   expect(first.env!.GIT_AUTHOR_NAME).toBe('time-machine')
   expect(first.cwd).toBe('/r')
-  expect(f.calls[3]!.argv.slice(-3)).toEqual(['tree1', '-m', 'baseline'])
+  expect(f.calls[4]!.argv.slice(-3)).toEqual(['tree1', '-m', 'baseline'])
 })
 
 test('an unchanged tree makes no commit; a changed one lists its files', async () => {
   const same = fake(sub => (sub === 'write-tree' || sub === 'rev-parse' ? { stdout: 'treeX\n' } : undefined))
   expect(await G(same).snapshot('c1', 'step 2', 'refs/tm/s1/main')).toEqual({ commit: 'c1', changed: false, files: [], filesTotal: 0 })
-  expect(same.subs()).toEqual(['verify', 'add', 'write-tree', 'rev-parse'])
+  expect(same.subs()).toEqual(['verify', 'ignored-tracked', 'add', 'write-tree', 'rev-parse'])
   const changed = fake(sub => {
     if (sub === 'write-tree') return { stdout: 'treeB\n' }
     if (sub === 'rev-parse') return { stdout: 'treeA\n' }
@@ -85,7 +85,7 @@ test('operations run one at a time, in the order they were asked', async () => {
   const f = fake(sub => (sub === 'write-tree' ? { stdout: 't\n' } : sub === 'rev-parse' ? { stdout: 't\n' } : undefined))
   const g = G(f)
   await Promise.all([g.snapshot('c1', 'a', 'r'), g.snapshot('c1', 'b', 'r')])
-  expect(f.subs()).toEqual(['verify', 'add', 'write-tree', 'rev-parse', 'verify', 'add', 'write-tree', 'rev-parse'])
+  expect(f.subs()).toEqual(['verify', 'ignored-tracked', 'add', 'write-tree', 'rev-parse', 'verify', 'ignored-tracked', 'add', 'write-tree', 'rev-parse'])
 })
 
 test('a snapshot takes its parent from the ref when it runs, so parallel snapshots chain', async () => {
@@ -136,20 +136,20 @@ test('restore, export, init, deleteRefs and gc issue the expected commands', asy
   )
   const g = G(f)
   expect(await g.restore('c3', 'refs/tm/s1/main', 'c2', 'restore to step 3')).toBe('c4')
-  expect(f.subs()).toEqual(['add', 'write-tree', 'rev-parse', 'ls-files', 'ls-tree', 'commit-tree', 'read-tree', 'update-ref'])
-  expect(f.calls[3]!.argv.slice(-6)).toEqual(['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'])
-  expect(f.calls[4]!.argv.slice(-5)).toEqual(['ls-tree', '-r', '-z', '--name-only', 'c3'])
-  expect(f.calls[5]!.argv.slice(-8)).toEqual(['commit-tree', 'c3^{tree}', '-p', 'c2', '-p', 'c3', '-m', 'restore to step 3'])
-  expect(f.calls[6]!.argv.slice(-4)).toEqual(['read-tree', '-u', '--reset', 'c3'])
-  expect(f.calls[7]!.argv.slice(-3)).toEqual(['update-ref', 'refs/tm/s1/main', 'c4'])
+  expect(f.subs()).toEqual(['ignored-tracked', 'add', 'write-tree', 'rev-parse', 'ls-files', 'ls-tree', 'commit-tree', 'read-tree', 'update-ref'])
+  expect(f.calls[4]!.argv.slice(-6)).toEqual(['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'])
+  expect(f.calls[5]!.argv.slice(-5)).toEqual(['ls-tree', '-r', '-z', '--name-only', 'c3'])
+  expect(f.calls[6]!.argv.slice(-8)).toEqual(['commit-tree', 'c3^{tree}', '-p', 'c2', '-p', 'c3', '-m', 'restore to step 3'])
+  expect(f.calls[7]!.argv.slice(-4)).toEqual(['read-tree', '-u', '--reset', 'c3'])
+  expect(f.calls[8]!.argv.slice(-3)).toEqual(['update-ref', 'refs/tm/s1/main', 'c4'])
   await g.exportTo('c3', '/s/tmp/x')
-  const exp = f.calls[8]!
+  const exp = f.calls[9]!
   expect(exp.argv).toContain('--work-tree=/s/tmp/x')
   expect(exp.env!.GIT_INDEX_FILE).toBe('/s/tmp/x.index')
   expect(exp.cwd).toBe('/s/tmp/x')
   await g.init()
-  expect(f.calls[9]!.argv).toEqual(['git', 'init', '--bare', '--quiet', '/s/shadow.git'])
-  expect(f.calls[10]!.argv).toEqual([
+  expect(f.calls[10]!.argv).toEqual(['git', 'init', '--bare', '--quiet', '/s/shadow.git'])
+  expect(f.calls[11]!.argv).toEqual([
     'sh',
     '-c',
     'if [ -f "$1" ]; then mkdir -p "$(dirname "$2")" && cp "$1" "$2"; fi',
@@ -158,7 +158,7 @@ test('restore, export, init, deleteRefs and gc issue the expected commands', asy
     '/s/shadow.git/info/exclude',
   ])
   await g.deleteRefs('refs/tm/old/')
-  expect(f.calls.slice(12).map(c => c.argv.slice(-3))).toEqual([
+  expect(f.calls.slice(13).map(c => c.argv.slice(-3))).toEqual([
     ['update-ref', '-d', 'refs/tm/old/main'],
     ['update-ref', '-d', 'refs/tm/old/b1'],
   ])
@@ -206,7 +206,7 @@ test('restore refuses, touching nothing, when the work tree moved past the snaps
     error = e
   }
   expect(String((error as Error).message)).toBe('the work tree changed since the last snapshot; run the restore again')
-  expect(f.subs()).toEqual(['add', 'write-tree', 'rev-parse'])
+  expect(f.subs()).toEqual(['ignored-tracked', 'add', 'write-tree', 'rev-parse'])
 })
 
 test('GitError prefers the fatal or error line over warnings', () => {
@@ -226,7 +226,7 @@ test('restore onto a new branch refuses, touching nothing, when its ref already 
   expect(f.subs()).toEqual(['verify'])
   const absent = fake(sub => (sub === 'write-tree' || sub === 'rev-parse' ? { stdout: 't\n' } : sub === 'commit-tree' ? { stdout: 'c4\n' } : undefined))
   expect(await G(absent).restore('c3', 'refs/tm/s1/b1', 'c2', 'm', true)).toBe('c4')
-  expect(absent.subs()).toEqual(['verify', 'add', 'write-tree', 'rev-parse', 'ls-files', 'ls-tree', 'commit-tree', 'read-tree', 'update-ref'])
+  expect(absent.subs()).toEqual(['verify', 'ignored-tracked', 'add', 'write-tree', 'rev-parse', 'ls-files', 'ls-tree', 'commit-tree', 'read-tree', 'update-ref'])
 })
 
 test('a ref that cannot be moved after the files were restored is reported as such', async () => {
@@ -259,7 +259,7 @@ test('restore refuses, touching nothing, when the target would overwrite ignored
     error = e
   }
   expect(String((error as Error).message)).toBe('restore would overwrite ignored files that no snapshot holds: .env, out; move them aside and run the restore again')
-  expect(f.subs()).toEqual(['add', 'write-tree', 'rev-parse', 'ls-files', 'ls-tree'])
+  expect(f.subs()).toEqual(['ignored-tracked', 'add', 'write-tree', 'rev-parse', 'ls-files', 'ls-tree'])
 })
 
 test('ignoredConflicts: equal paths, and one path a directory prefix of the other', () => {
@@ -296,7 +296,7 @@ test('a wholly ignored directory that only holds a target path is judged by the 
             : undefined
   const ok = fake(answer('pkg/__pycache__/a.pyc\0'))
   expect(await G(ok).restore('c3', 'r', 'c2', 'm')).toBe('c4')
-  expect(ok.calls[5]!.argv.slice(-8)).toEqual(['--literal-pathspecs', 'ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--', 'pkg/'])
+  expect(ok.calls[6]!.argv.slice(-8)).toEqual(['--literal-pathspecs', 'ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--', 'pkg/'])
   const clash = fake(answer('pkg/a.py\0'))
   let error: unknown
   try {

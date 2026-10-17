@@ -190,10 +190,19 @@ export class ShadowGit {
     return r.exitCode === 0 && r.stdout.trim() !== ''
   }
 
+  private async stage(runner: Runner): Promise<void> {
+    // Ignore rules do not untrack files. Remove them before add so even loose secret blobs
+    // are never written, while leaving the user's working files and old snapshots untouched.
+    const ignored = (await this.git(['ls-files', '-z', '--cached', '--ignored', '--exclude-standard'], { runner })).split('\0').filter(Boolean)
+    for (let i = 0; i < ignored.length; i += 100)
+      await this.git(['update-index', '--force-remove', '--', ...ignored.slice(i, i + 100)], { runner })
+    await this.git(['add', '-A'], { runner })
+  }
+
   private async snapshotNow(parent: string | undefined, message: string, ref: string, runner: Runner): Promise<SnapResult> {
     const at = await this.exec(['rev-parse', '--verify', '-q', ref], { runner })
     const base = at.exitCode === 0 && at.stdout.trim() !== '' ? at.stdout.trim() : parent
-    await this.git(['add', '-A'], { runner })
+    await this.stage(runner)
     const tree = (await this.git(['write-tree'], { runner })).trim()
     if (base !== undefined) {
       const baseTree = (await this.git(['rev-parse', `${base}^{tree}`], { runner })).trim()
@@ -243,7 +252,7 @@ export class ShadowGit {
   restore(target: string, ref: string, from: string, message: string, createRef = false): Promise<string> {
     return this.serial(async runner => {
       if (createRef && (await this.exec(['rev-parse', '--verify', '-q', ref], { runner })).exitCode === 0) throw new Error('branch ref already exists')
-      await this.git(['add', '-A'], { runner })
+      await this.stage(runner)
       const tree = (await this.git(['write-tree'], { runner })).trim()
       const fromTree = (await this.git(['rev-parse', `${from}^{tree}`], { runner })).trim()
       if (tree !== fromTree) throw new Error('the work tree changed since the last snapshot; run the restore again')

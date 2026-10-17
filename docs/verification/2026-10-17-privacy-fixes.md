@@ -5,3 +5,4 @@
 | 항목 | 수정 및 버전 | 검증 |
 |---|---|---|
 | 1 | Agent Profiler 0.1.1: 검색 패턴도 `exportCommandText` opt-in 및 마스킹 적용 | core 329/329, profiler engine 60/60, TypeScript 통과 |
+| 2 | Time Machine 0.1.1: staging 전에 현재 무시 파일을 shadow index에서 제외; restore 충돌 보호 유지 | core 329/329, time-machine engine 98/98, TypeScript 및 실제 Git 회귀 검사 통과 |

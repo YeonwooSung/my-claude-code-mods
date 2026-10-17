@@ -47,7 +47,7 @@ Claude Code 2.1.287 이상(mods 기본 활성화)과 `git`이 필요하다.
 ## 어떻게 기록하나
 
 - **섀도 git**: `<storeDir>/<projectKey>/shadow.git`(bare 저장소)에 스냅샷을 커밋한다. `projectKey`는 프로젝트 루트의 이름과 경로 해시 앞 8자. 세션마다 인덱스(`index/<sessionId>`)를 따로 쓰고, ref는 `refs/tm/<sessionId>/<branch>`.
-  섀도 저장소의 git 환경(`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_OBJECT_DIRECTORY` 등)은 고정되고 상속된 `GIT_CONFIG_PARAMETERS`는 비워져 있어 사용자의 `.git`에는 아무것도 쓰지 않는다. `.gitignore`를 따른다. 사용자의 `.git/info/exclude`는 세션에서 git을 처음 쓸 때(첫 변경성 도구 또는 git을 쓰는 첫 `/tm` 명령) 섀도 저장소로 복사되며 이후 갱신되지 않는다(`.git`이 파일인 linked worktree는 제외).
+  섀도 저장소의 git 환경(`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_OBJECT_DIRECTORY` 등)은 고정되고 상속된 `GIT_CONFIG_PARAMETERS`는 비워져 있어 사용자의 `.git`에는 아무것도 쓰지 않는다. 현재 `.gitignore`를 따른다. 이전 섀도 스냅샷에서 추적한 파일도 현재 무시 대상이면 staging 전에 섀도 인덱스에서 제외하며, 작업 파일과 과거 스냅샷은 삭제하지 않는다. 사용자의 `.git/info/exclude`는 세션에서 git을 처음 쓸 때(첫 변경성 도구 또는 git을 쓰는 첫 `/tm` 명령) 섀도 저장소로 복사되며 이후 갱신되지 않는다(`.git`이 파일인 linked worktree는 제외).
 - **스냅샷 시점**: 변경성 도구(Edit, MultiEdit, Write, NotebookEdit, Bash, 알 수 없는 도구·MCP 도구) 뒤에 찍는다. Bash는 기본으로 모두 찍는다 — `cat > f <<EOF` 같은 리디렉션도 파일을 쓰기 때문이다. 변경이 없으면 커밋하지 않는다. 설정 `skipSearchBash`를 켜면 검색으로 분류된 Bash(rg, grep, ls, cat …)는 건너뛴다. 읽기 전용 도구는 찍지 않는다.
 - **외부 변경 step**: 변경성 도구 *전*에 현재 트리가 직전 스냅샷과 다르면(사람이 IDE에서 고친 것 등) 그 차이를 `external` step으로 기록해 에이전트 탓으로 돌리지 않는다.
 - **베이스라인**: 첫 변경성 도구 직전(또는 git을 쓰는 첫 `/tm` 명령)에 찍는다. 세션 시작을 늦추지 않기 위해서다.

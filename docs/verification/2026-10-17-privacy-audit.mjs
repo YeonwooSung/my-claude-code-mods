@@ -24,7 +24,7 @@ const { renderReport: contextReport } = await mod('context-inspector/hooks/core/
 const { redactSecrets: contextRedact } = await mod('context-inspector/hooks/core/redact.ts')
 const outputs = []
 // Each repaired group checks absence; untouched groups still characterize the original finding.
-const protectedGroups = new Set(['AP-1'])
+const protectedGroups = new Set(['AP-1', 'TM-4'])
 function contains(label, value, secret) {
   const text = typeof value === 'string' ? value : JSON.stringify(value)
   const protectedCase = protectedGroups.has(label.split(':')[0])
@@ -107,6 +107,15 @@ try {
   await writeFile(`${project}/.gitignore`, 'settings.txt\n')
   await writeFile(`${project}/settings.txt`, 'FAKE_NEWLY_IGNORED_SECRET')
   const next = await git.snapshot(first.commit, 'after ignoring', 'refs/tm/audit/main')
-  contains('TM-4: newly ignored file stays tracked and new secrets enter shadow snapshot', await git.git(['show', `${next.commit}:settings.txt`]), 'FAKE_NEWLY_IGNORED_SECRET')
+  const recorded = await git.exec(['show', `${next.commit}:settings.txt`])
+  contains('TM-4: newly ignored file stays tracked and new secrets enter shadow snapshot', recorded.exitCode === 0 ? recorded.stdout : 'file excluded', 'FAKE_NEWLY_IGNORED_SECRET')
+  if (protectedGroups.has('TM-4')) {
+    // Excluding from the final tree is insufficient if git add first stored the secret blob.
+    const secretHash = (await git.git(['hash-object', 'settings.txt'])).trim()
+    assert.notEqual((await git.exec(['cat-file', '-e', secretHash])).exitCode, 0)
+    await assert.rejects(git.restore(first.commit, 'refs/tm/audit/main', next.commit, 'restore'), /overwrite ignored files/)
+    const { readFile } = await import('node:fs/promises')
+    assert.equal(await readFile(`${project}/settings.txt`, 'utf8'), 'FAKE_NEWLY_IGNORED_SECRET')
+  }
 } finally { await rm(tmp, { recursive: true, force: true }) }
 console.log(JSON.stringify({ checkedCases: outputs.length, protectedCases: outputs.filter(x => x.protected).length, remainingLeaks: outputs.filter(x => !x.protected).length, outputs }, null, 2))
