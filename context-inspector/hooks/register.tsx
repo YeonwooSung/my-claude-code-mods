@@ -10,7 +10,7 @@ import { summarize, type Scope, type Summary } from './core/summary.ts'
 import { inputOf } from './core/tokens.ts'
 import { MAIN } from './core/types.ts'
 
-const VERSION = '0.1.0'
+const VERSION = '0.1.1'
 const PANE = 'context-inspector'
 const COMMANDS = [
   {

@@ -1,6 +1,6 @@
 {
   "name": "context-inspector",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Context waste analyzer for Claude Code: what fills the window, re-reads, near-duplicate outputs, what compaction kept, advice",
   "author": { "name": "YeonwooSung" },
   "userConfig": {
