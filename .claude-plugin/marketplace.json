@@ -83,6 +83,11 @@
       "name": "assumption-tracker",
       "source": "./assumption-tracker",
       "description": "Assumption Tracker"
+    },
+    {
+      "name": "review-queue",
+      "source": "./review-queue",
+      "description": "Review Queue"
     }
   ]
 }

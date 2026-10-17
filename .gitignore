@@ -192,3 +192,5 @@ env-doctor/.claude-plugin/types/
 dependency-lens/.claude-plugin/types/
 
 assumption-tracker/.claude-plugin/types/
+
+review-queue/.claude-plugin/types/

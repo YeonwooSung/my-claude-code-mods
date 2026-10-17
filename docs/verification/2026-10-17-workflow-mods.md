@@ -35,3 +35,6 @@ RED: missing manifest/lock comparison reproduced. GREEN: 3 core tests, 5 engine 
 
 ## 9. Assumption Tracker
 RED: missing assumption transitions reproduced. GREEN: 3 core tests, 5 engine tests, TypeScript/manifest clean; full suite 369/369. Resolved states require evidence; reopening preserves bounded transition history. Stable IDs and masked evidence verified.
+
+## 10. Review Queue
+RED: missing review grouping/freshness model reproduced. GREEN: 3 core tests, 5 engine tests, TypeScript/manifest clean; full suite 372/372. Persisted purpose groups, file-body changes, independent staged changes, invalid paths and incomplete evidence verified.

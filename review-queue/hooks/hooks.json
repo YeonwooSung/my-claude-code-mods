@@ -1,0 +1,6 @@
+{
+  "description": "Review Queue hooks module",
+  "modules": [
+    "./register.ts"
+  ]
+}
