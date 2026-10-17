@@ -4,7 +4,7 @@
 Group changed files by explicit review purpose and retain reviewed state only while the file diff remains unchanged.
 
 ## Deliverable
-Standalone installable local Claude Code mod with `/review` help and report commands, persistent state isolated by project and session, and observable tool integration where applicable. Use TypeScript pure analysis plus a small engine adapter. No network calls, automatic package installation, source rewrites or automatic command replay.
+Standalone installable local Claude Code mod with `/review-queue` help and report commands, persistent state isolated by project and session, and observable tool integration where applicable. Use TypeScript pure analysis plus a small engine adapter. No network calls, automatic package installation, source rewrites or automatic command replay.
 
 ## First release boundaries
 Git projects; bounded snapshots and reports must expose incomplete evidence. Blast Radius supports static relative JS/TS imports, not a full language server. Env Doctor supports a documented conservative semver subset and reports unsupported expressions as unknown. Dependency Lens supports npm package-lock v2/v3. Decisions and assumptions are explicit user entries, not inferred facts. Review Queue groups files by purpose, not individual hunks.

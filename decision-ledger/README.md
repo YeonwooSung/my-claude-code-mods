@@ -2,6 +2,8 @@
 
 Local Claude Code mod. Install: `claude plugin install decision-ledger@my-claude-code-mods --scope user`, then reload plugins.
 
+Explicit decisions with rationale, rejected alternatives and file references.
+
 ## Commands
 
 ```text
@@ -17,3 +19,15 @@ Reports are returned as command text, usable in terminal/Desktop/headless sessio
 First release: see [design](../docs/superpowers/specs/2026-10-17-decision-ledger-design.md) for exact analysis limits. Git commands have a 10-second timeout. Lists cap at 200 entries and repository scans at 2,000 paths / 2 MiB; incomplete evidence is reported. Commands use explicit data entry; no model inference or automatic source editing. Actual engine tests cover command behavior and forwarding; live terminal/Desktop pixels have not been checked.
 
 Development: `npm test`, `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test decision-ledger`, `npx tsc -p decision-ledger`. Engine typechecking needs local ignored declarations. Canonical runtime sources are in `scripts/workflow/`; run `node scripts/sync-workflow.mjs` after editing.
+
+## Example
+
+```text
+/decision add src/cache.ts#lookup | LRU cache | Bound memory | Unbounded Map
+/decision list src/cache.ts
+/decision remove 1
+```
+
+Latest 200 decisions. IDs are monotonic until reset. Text is explicit user input, never inferred from model reasoning. State is capped at 256 KiB; failed writes return an error without replacing saved state.
+
+Local preview before marketplace publication: `claude --plugin-dir ./decision-ledger` from this checkout. Engine tests were run with Claude Code 2.1.302.

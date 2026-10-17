@@ -4,7 +4,7 @@
 
 **Goal:** Read package.json requirements and inspect installed Node/package-manager versions and required env-variable presence, never values.
 
-**Architecture:** A standalone `hooks/register.ts` adapter wraps a tested `hooks/core/feature.ts` command/observation model. A vendored runtime provides safe text, Git reads and session-scoped durable transactions; its canonical source lives under `scripts/workflow/`.
+**Architecture:** A standalone top-level `hooks/register.ts` adapter calls a tested `hooks/core/feature.ts` command/observation model. A vendored runtime provides safe text, Git reads and session-scoped durable transactions; its canonical source lives under `scripts/workflow/`.
 
 **Tech Stack:** TypeScript, Claude Code function hooks, Node test runner, actual engine adapter tests.
 
@@ -23,7 +23,7 @@ Missing package.json; malformed versions; unsupported ranges; absent binaries; e
 
 **Files:** Create `env-doctor/hooks/core/feature.ts`, `env-doctor/hooks/register.ts`, `env-doctor/tests/feature.test.ts`, `env-doctor/tests/adapter.test.ts`, manifests, tsconfig and English/Korean READMEs. Update marketplace and test/typecheck inventories.
 
-**Interfaces:** `Feature.command(args: string, io: Port): Promise<string>`; `Feature.observe(observation: Observation, io: Port): Promise<void>`; JSON-safe `Feature.data`. Commands use `/doctor`. Port provides cwd, file reads, argv-based processes and environment presence.
+**Interfaces:** `Feature.command(args: string, io: Port): Promise<string>`; `Feature.observe(observation: Observation, io: Port): Promise<void>`; JSON-safe `Feature.data`. Commands use `/env-doctor`. Port provides cwd, file reads, argv-based processes and environment presence.
 
 - [x] Write real behavior tests covering the primary workflow and the Review Focus cases; engine tests cover command registration, tool forwarding, isolation and persistence failure.
 - [x] Run focused tests and observe failure caused by missing feature behavior (RED).

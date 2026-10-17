@@ -89,5 +89,8 @@
       "source": "./review-queue",
       "description": "Review Queue"
     }
-  ]
+  ],
+  "metadata": {
+    "description": "Local Claude Code mods for developer profiling, context, verification and review workflows."
+  }
 }

@@ -4,7 +4,7 @@
 
 **Goal:** Group changed files by explicit review purpose and retain reviewed state only while the file diff remains unchanged.
 
-**Architecture:** A standalone `hooks/register.ts` adapter wraps a tested `hooks/core/feature.ts` command/observation model. A vendored runtime provides safe text, Git reads and session-scoped durable transactions; its canonical source lives under `scripts/workflow/`.
+**Architecture:** A standalone top-level `hooks/register.ts` adapter calls a tested `hooks/core/feature.ts` command/observation model. A vendored runtime provides safe text, Git reads and session-scoped durable transactions; its canonical source lives under `scripts/workflow/`.
 
 **Tech Stack:** TypeScript, Claude Code function hooks, Node test runner, actual engine adapter tests.
 
@@ -23,7 +23,7 @@ Staged and unstaged edits; rename/delete; stale review; invalid grouping; binary
 
 **Files:** Create `review-queue/hooks/core/feature.ts`, `review-queue/hooks/register.ts`, `review-queue/tests/feature.test.ts`, `review-queue/tests/adapter.test.ts`, manifests, tsconfig and English/Korean READMEs. Update marketplace and test/typecheck inventories.
 
-**Interfaces:** `Feature.command(args: string, io: Port): Promise<string>`; `Feature.observe(observation: Observation, io: Port): Promise<void>`; JSON-safe `Feature.data`. Commands use `/review`. Port provides cwd, file reads, argv-based processes and environment presence.
+**Interfaces:** `Feature.command(args: string, io: Port): Promise<string>`; `Feature.observe(observation: Observation, io: Port): Promise<void>`; JSON-safe `Feature.data`. Commands use `/review-queue`. Port provides cwd, file reads, argv-based processes and environment presence.
 
 - [x] Write real behavior tests covering the primary workflow and the Review Focus cases; engine tests cover command registration, tool forwarding, isolation and persistence failure.
 - [x] Run focused tests and observe failure caused by missing feature behavior (RED).

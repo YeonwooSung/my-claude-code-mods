@@ -4,7 +4,7 @@
 
 **Goal:** Compare current Git changes and observed write targets against explicitly allowed project-relative paths; report without blocking.
 
-**Architecture:** A standalone `hooks/register.ts` adapter wraps a tested `hooks/core/feature.ts` command/observation model. A vendored runtime provides safe text, Git reads and session-scoped durable transactions; its canonical source lives under `scripts/workflow/`.
+**Architecture:** A standalone top-level `hooks/register.ts` adapter calls a tested `hooks/core/feature.ts` command/observation model. A vendored runtime provides safe text, Git reads and session-scoped durable transactions; its canonical source lives under `scripts/workflow/`.
 
 **Tech Stack:** TypeScript, Claude Code function hooks, Node test runner, actual engine adapter tests.
 

@@ -4,7 +4,7 @@
 
 **Goal:** Preview a local Markdown handoff with explicit goal/todos, observed failures, changed paths and verification evidence.
 
-**Architecture:** A standalone `hooks/register.ts` adapter wraps a tested `hooks/core/feature.ts` command/observation model. A vendored runtime provides safe text, Git reads and session-scoped durable transactions; its canonical source lives under `scripts/workflow/`.
+**Architecture:** A standalone top-level `hooks/register.ts` adapter calls a tested `hooks/core/feature.ts` command/observation model. A vendored runtime provides safe text, Git reads and session-scoped durable transactions; its canonical source lives under `scripts/workflow/`.
 
 **Tech Stack:** TypeScript, Claude Code function hooks, Node test runner, actual engine adapter tests.
 
