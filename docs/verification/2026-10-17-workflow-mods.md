@@ -23,3 +23,6 @@ RED: missing decision feature reproduced; JSON leaf-sanitization regression then
 
 ## 5. Handoff Pack
 RED: missing handoff feature reproduced. GREEN: 3 core tests, 5 engine tests, TypeScript and manifest clean; full suite 357/357. Preview combines explicit goal/tasks/notes, live changed files and revision-aware observed checks, plus bounded masked failure history.
+
+## 6. Command Shelf
+RED: missing command retention/replay feature reproduced. GREEN: 3 core tests, 6 engine tests, TypeScript/manifest clean; full suite 360/360. Engine test confirms explicit replay reaches Bash once, permission denial is preserved, and observation does not deadlock. Environment values are deliberately not captured; original cwd is bound and secret-bearing commands are excluded.

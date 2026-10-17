@@ -63,6 +63,11 @@
       "name": "handoff-pack",
       "source": "./handoff-pack",
       "description": "Handoff Pack"
+    },
+    {
+      "name": "command-shelf",
+      "source": "./command-shelf",
+      "description": "Command Shelf"
     }
   ]
 }

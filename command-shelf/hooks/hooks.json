@@ -1,0 +1,6 @@
+{
+  "description": "Command Shelf hooks module",
+  "modules": [
+    "./register.ts"
+  ]
+}
