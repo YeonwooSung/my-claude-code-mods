@@ -4,7 +4,7 @@ Claude Code에서 요청이 실패했을 때, 또는 잠깐 쉬고 싶을 때 �
 
 ## 설치와 실행
 
-연결되어 있을 때 먼저 설치하고 로드하세요. 이후 게임은 네트워크나 모델 호출 없이 동작합니다. 함수 훅·Client API는 **Claude Code 2.1.292**에서 검증했습니다. Mods를 지원하지 않는 구버전에서는 사용할 수 없습니다.
+연결되어 있을 때 먼저 설치하고 로드하세요. 이후 게임은 네트워크나 모델 호출 없이 동작합니다. 함수 훅·Client API는 **Claude Code 2.1.296·2.1.299·2.1.300·2.1.301**의 엔진 테스트와 **2.1.301**의 실제 터미널에서 검증했습니다. Mods를 지원하지 않는 구버전에서는 사용할 수 없습니다.
 
 ```sh
 claude plugin marketplace add YeonwooSung/my-claude-code-mods
@@ -25,12 +25,15 @@ CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir ./token-run
 
 | 키 / 버튼 | 동작 |
 |---|---|
-| Space / ↑ / Jump | 시작과 점프. 공중에서는 추가 점프 불가 |
+| 트랙 클릭 / Space / ↑ / Jump | 시작과 점프. 공중에서는 추가 점프 불가 |
 | R | 같은 코스로 재시작 |
 | P | 일시정지 / 재개 |
-| Q / Esc | 닫고 작업으로 복귀 |
+| Q | 게임 닫기 |
+| Esc | 입력창으로 포커스 복귀. 비어 있는 대기 입력창에서 다시 Esc를 누르면 패널 닫기 |
 
-게임에 포커스가 있을 때만 키를 받습니다. Ctrl·Meta·Shift 조합은 무시하고 전역 단축키를 등록하지 않습니다. Esc는 엔진이 처리합니다. 포커스를 잃으면 진행을 멈추고 돌아오면 이어갑니다. P로 정지한 경우에는 P를 눌러야 재개됩니다. 닫았다가 다시 열면 새 게임입니다.
+게임에 포커스가 있을 때만 키를 받습니다. Ctrl·Meta·Shift 조합은 무시하고 전역 단축키를 등록하지 않습니다. 트랙이나 Jump를 클릭해 게임에 키보드 포커스를 주세요. Esc는 엔진이 처리합니다. API에서 Client의 포커스 이탈을 알 수 없으므로 자동 정지하지 않습니다. 작업으로 돌아가기 전 P로 정지하고, P로 재개하세요. 닫았다가 다시 열면 새 게임입니다.
+
+도킹 패널과 인라인 패널 사이로 전환되면 Client가 다시 생성될 수 있습니다. 메모리 체크포인트로 복구하며 정지·재시작 상태는 즉시 저장합니다. 진행 중에는 약 1초의 게임 시간까지 되돌아갈 수 있습니다. 전환 후 트랙이나 버튼을 클릭해 포커스를 다시 주세요. 닫으면 체크포인트를 지웁니다.
 
 좁은 패널에서는 상태를 `LOCAL`·`SAVE!`(기록 저장 경고)·`BACK:Esc`(응답 복구)로 줄여 표시합니다. 게임오버·재시작·일시정지 안내는 먼저 보여줍니다. Q는 즉시 닫고 이미 접수한 기록 저장은 이어서 마칩니다.
 
@@ -51,9 +54,23 @@ CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir ./token-run
 ```sh
 npm test
 npm run typecheck
-CLAUDE_BIN=/path/to/claude-2.1.292 npm run test:adapters
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 /path/to/claude-2.1.292 plugin test token-run
-/path/to/claude-2.1.292 plugin validate token-run
+CLAUDE_BIN=/path/to/claude-2.1.301 npm run test:adapters
+CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 /path/to/claude-2.1.301 plugin test token-run
+/path/to/claude-2.1.301 plugin validate token-run
 ```
 
-타입 검증에는 해당 엔진의 `.claude-plugin/types` 로컬 선언이 필요하며 다른 모드처럼 Git에서 제외합니다. 추가 의존성은 없습니다. 순수 테스트는 물리·저장 실패/경합·요청 세대·화면 크기를, 실제 엔진 테스트는 터미널/Desktop Client의 키·버튼·프레임·포커스·리사이즈·기록·세션 전환을 검증합니다. 실제 화면의 픽셀 캡처 검증은 포함하지 않습니다.
+타입 검증에는 해당 엔진의 `.claude-plugin/types` 로컬 선언이 필요하며 다른 모드처럼 Git에서 제외합니다. 런타임 의존성은 추가하지 않습니다. 순수 테스트는 물리·저장 실패/경합·요청 세대·화면 크기를, 실제 엔진 테스트는 터미널/Desktop Client의 키·버튼·프레임·부모 Pane 비포커스 상태의 입력·명시적 정지·리사이즈 복구·기록·세션 전환을 검증합니다. 실제 화면의 픽셀 캡처 검증은 포함하지 않습니다.
+
+
+## 실제 터미널 검증 (선택)
+
+macOS/Linux에서 임시 설정·가짜 API 키·접속이 거부되는 로컬 API 주소로 CLI를 격리 실행합니다. 실제 키·마우스 입력, 프레임, 리사이즈, 요청 실패 진입, 프로세스 재시작 후 기록을 검증합니다. 계정이나 시스템 네트워크 설정을 사용·변경하지 않습니다. Python 의존성은 QA 전용입니다.
+
+```sh
+python3 -m venv /tmp/token-run-qa
+/tmp/token-run-qa/bin/pip install -r token-run/qa/requirements.txt
+/tmp/token-run-qa/bin/python token-run/qa/pty_smoke.py --claude-bin /path/to/claude-2.1.301 --artifacts /tmp/token-run-smoke
+# --combined를 추가하면 7개 모드를 함께 로드합니다.
+```
+
+2.1.301에서 단독·7개 모드 동시 실행 모두 19개 검증 지점을 통과했습니다. ANSI 출력·해석한 화면·result.json을 남깁니다. Desktop 네이티브 GUI는 확인하지 않았으며 엔진 렌더 트리만 검증했습니다. 상세 결과와 한계는 [검증 보고서](../docs/verification/2026-10-17-token-run.md)에 기록했습니다.

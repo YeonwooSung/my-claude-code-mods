@@ -4,7 +4,7 @@ A small, fully local ASCII runner for Claude Code. Jump over BUG, 429 and TIMEOU
 
 ## Install and start
 
-Install while connected; after loading, the game needs no network or model calls. The mod uses the function-hooks/Client API verified with Claude Code **2.1.292**. Older builds without Mods support cannot load it.
+Install while connected; after loading, the game needs no network or model calls. The mod uses the function-hooks/Client API verified in engine tests with Claude Code **2.1.296, 2.1.299, 2.1.300 and 2.1.301**, and in real terminal sessions with **2.1.301**. Older builds without Mods support cannot load it.
 
 ```sh
 claude plugin marketplace add YeonwooSung/my-claude-code-mods
@@ -25,12 +25,15 @@ A main turn ending in an error adds a “request failed” game invitation above
 
 | Key / button | Action |
 |---|---|
-| Space / Up / Jump | Start and jump; no double jump |
+| Track click / Space / Up / Jump | Start and jump; no double jump |
 | R | Restart the same course |
 | P | Pause/resume |
-| Q / Esc | Close the game and return to work |
+| Q | Close the game |
+| Esc | Return focus to the composer; another Esc at an empty idle prompt closes the pane |
 
-Only the focused game receives keys. Ctrl/Meta/Shift combinations are ignored; no global game shortcuts. Escape is handled by the engine. Leaving focus pauses movement; returning resumes it unless P was used. Closing/reopening starts a fresh run. The game needs at least 24 columns and 8 rows; a smaller region shows a resize hint and suspends movement.
+Only the focused game receives keys. Ctrl/Meta/Shift combinations are ignored; no global game shortcuts. Click the track or Jump to give the Client keyboard focus. Escape is handled by the engine. Use P to pause before returning to work: the API does not expose Client blur, so leaving focus does not automatically pause. Closing/reopening starts a fresh run. The game needs at least 24 columns and 8 rows; a smaller region shows a resize hint and suspends movement.
+
+Switching between docked and inline layouts may remount the Client. An in-memory checkpoint restores the run; paused/restarted states are saved immediately, while a running game may roll back by about one simulated second. Click the track or a button to regain focus after this transition. Closing clears this checkpoint.
 
 Narrow panes shorten status notices to `LOCAL`, `SAVE!` (record save warning) and `BACK:Esc` (response returned). Game-over/retry and pause controls remain visible. Q closes immediately while its accepted score save finishes.
 
@@ -47,9 +50,23 @@ The verified engine API exposes main-turn failure, not an OS network-status even
 ```sh
 npm test
 npm run typecheck
-CLAUDE_BIN=/path/to/claude-2.1.292 npm run test:adapters
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 /path/to/claude-2.1.292 plugin test token-run
-/path/to/claude-2.1.292 plugin validate token-run
+CLAUDE_BIN=/path/to/claude-2.1.301 npm run test:adapters
+CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 /path/to/claude-2.1.301 plugin test token-run
+/path/to/claude-2.1.301 plugin validate token-run
 ```
 
-Typecheck needs matching local `.claude-plugin/types` declarations; these generated files are ignored like those of other mods. No new dependencies. Pure tests cover deterministic physics, storage races/failure, request generations and responsive ASCII output. Real engine tests mount the Client on terminal/Desktop and advance its frame clock to test keys, buttons, focus/resize suspension, scores and lifecycle. These are render-tree tests, not terminal/Desktop pixel captures.
+Typecheck needs matching local `.claude-plugin/types` declarations; these generated files are ignored like those of other mods. No runtime dependencies are added. Pure tests cover deterministic physics, storage races/failure, request generations and responsive ASCII output. Real engine tests mount the Client on terminal/Desktop and advance its frame clock to test keys, buttons, explicit pause, input with an unfocused parent Pane, resize suspension and checkpoint restoration, scores and lifecycle. These are render-tree tests, not terminal/Desktop pixel captures.
+
+
+## Real terminal smoke test (optional)
+
+On macOS/Linux, run the native CLI in an isolated PTY with a temporary config, a dummy API key and a refused loopback API endpoint. This checks actual input/focus, animation, resize, failure entry and records across process restart. It does not change system network settings or use your account. The optional Python dependencies are only for QA.
+
+```sh
+python3 -m venv /tmp/token-run-qa
+/tmp/token-run-qa/bin/pip install -r token-run/qa/requirements.txt
+/tmp/token-run-qa/bin/python token-run/qa/pty_smoke.py --claude-bin /path/to/claude-2.1.301 --artifacts /tmp/token-run-smoke
+# Add --combined to load all seven mods together.
+```
+
+Both solo and combined runs passed 19 checkpoints on 2.1.301. Artifacts include ANSI output, decoded screen snapshots and result.json. Native Desktop GUI rendering has not been checked; Desktop coverage is engine render-tree coverage. See the [verification report](../docs/verification/2026-10-17-token-run.md) for evidence and limits.
