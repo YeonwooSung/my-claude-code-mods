@@ -28,3 +28,22 @@ test('invalid paths, unchanged files and incomplete evidence cannot become revie
   const broken = { ...x.io, run: async () => ({ exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: true }) }
   expect(await f.command('mark src/auth.ts', broken)).toContain('INCOMPLETE')
 })
+test('purpose grouping and marking preserve repeated spaces in filenames', async () => {
+  const x = fixture(), f = new Feature()
+  const port = { ...x.io, run: async (args: readonly string[]) => ({ exitCode: 0, stdout: args.includes('status') ? ' M src/auth  service.ts\0' : 'diff', stderr: '' }) }
+  await f.command('group Authentication | src/auth  service.ts', port)
+  expect(await f.command('mark src/auth  service.ts', port)).toContain('REVIEWED src/auth  service.ts')
+  expect(await f.command('', port)).toContain('[Authentication]')
+})
+test('regrouping and unmarking one file leaves other purpose groups intact', async () => {
+  const x = fixture(), f = new Feature()
+  await f.command('group Auth | src/auth.ts', x.io)
+  await f.command('group Tests | test new.ts', x.io)
+  await f.command('mark src/auth.ts', x.io)
+  await f.command('group Security | src/auth.ts', x.io)
+  const report = await f.command('unmark src/auth.ts', x.io)
+  expect(report).toContain('PENDING src/auth.ts')
+  expect(report).toContain('[Security]')
+  expect(report).toContain('[Tests]')
+  expect(report).not.toContain('[Auth]')
+})

@@ -28,3 +28,17 @@ test('unavailable binaries, malformed manifests and unsupported ranges report un
 test('unsupported partial greater-than and less-or-equal comparators never give wrong semver verdicts', () => {
   for (const range of ['>20', '<=20', '>20.5', '<=20.5']) expect(satisfies('20.5.1', range)).toBe('unknown')
 })
+test('zero-major caret and tilde boundaries use patch and minor upper limits', () => {
+  for (const [version, range, expected] of [['0.0.2', '^0.0.2', 'match'], ['0.0.3', '^0.0.2', 'mismatch'], ['0.2.9', '^0.2.1', 'match'], ['0.3.0', '^0.2.1', 'mismatch'], ['1.4.9', '~1.4.2', 'match'], ['1.5.0', '~1.4.2', 'mismatch'], ['23.1.0', '>=22 <23 || >=24', 'mismatch'], ['24.0.0', '>=22 <23 || >=24', 'match']]) expect(satisfies(version!, range!)).toBe(expected)
+})
+test('truncated version results and failed environment lookups remain unknown', async () => {
+  const f = new Feature()
+  await f.command('require DATABASE_URL', io)
+  const port = { ...io, run: async () => ({ exitCode: 0, stdout: 'v22.19.0', stderr: '', isStdoutTruncated: true }), env: async () => { throw new Error('cannot inspect') } }
+  const report = await f.command('', port)
+  expect(report).toContain('UNKNOWN >=22.19.0')
+  expect(report).toContain('DATABASE_URL: UNKNOWN')
+})
+test('JSON primitives are not accepted as a valid package manifest', async () => {
+  for (const raw of ['null', '[]', '42']) expect(await new Feature().command('', { ...io, read: async () => raw })).toContain('manifest unavailable')
+})

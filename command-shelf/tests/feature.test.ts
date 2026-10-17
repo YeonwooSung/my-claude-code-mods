@@ -28,3 +28,20 @@ test('listing and preview never execute; explicit run uses the captured cwd and 
   expect(await f.command('run 1', { ...port, cwd: '/other' })).toContain('different project')
   expect(replayed).toHaveLength(1)
 })
+test('replay quotes spaces and single quotes in the captured working directory', async () => {
+  const f = new Feature(), commands: string[] = []
+  const port = { ...io, cwd: "/repo/owner's project", replay: async (command: string) => { commands.push(command); return { result: { stdout: '', stderr: '', interrupted: false } } } }
+  await f.observe(event('pwd'), port)
+  expect(await f.command('run 1', port)).toContain('completed')
+  expect(commands).toEqual(["cd -- '/repo/owner'\\''s project' && pwd"])
+})
+test('removed and evicted commands cannot be replayed and ids are never reused', async () => {
+  const f = new Feature()
+  for (let i = 1; i <= 201; i++) await f.observe(event(`echo ${i}`), io)
+  expect(f.data.commands).toHaveLength(200)
+  expect(await f.command('run 1', io)).toContain('not found')
+  await f.command('remove 201', io)
+  expect(await f.command('run 201', io)).toContain('not found')
+  await f.observe(event('echo next'), io)
+  expect(await f.command('show 202', io)).toContain('echo next')
+})

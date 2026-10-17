@@ -31,3 +31,18 @@ test('denied reads and malformed lock package maps remain incomplete evidence', 
   const io = { cwd: '/repo', read: async (path: string) => { if (path.endsWith('/package.json')) throw new Error('permission denied'); return '{"lockfileVersion":3,"packages":{}}' }, run: async (args: readonly string[]) => ({ exitCode: 0, stdout: args.includes('ls-tree') ? args.at(-1) + '\0' : args.includes('show') ? args.at(-1)!.endsWith(':package.json') ? '{"dependencies":{"pkg":"1"}}' : '{"lockfileVersion":3,"packages":{}}' : 'commit', stderr: '' }), env: async () => undefined, revision: async () => 'a' }
   expect(await f.command('', io)).toContain('INCOMPLETE')
 })
+test('unchanged lock metadata and dependency-order differences produce no package delta', () => {
+  const a = { lockfileVersion: 3, packages: { 'node_modules/pkg': { version: '1', integrity: 'sha512-demo', dev: true } } }
+  const b = { lockfileVersion: 3, packages: { 'node_modules/pkg': { dev: true, integrity: 'sha512-demo', version: '1' } } }
+  expect(compare({}, {}, a, b).join('\n')).toContain('Lock delta: +0 -0 ~0')
+})
+test('malformed individual lock entries cannot be treated as complete package evidence', () => {
+  for (const invalid of [null, [], '1.0.0']) {
+    const lock = { lockfileVersion: 3, packages: { 'node_modules/pkg': invalid } }
+    expect(compare({}, {}, lock, lock).join('\n')).toContain('INCOMPLETE')
+  }
+})
+test('large direct-dependency reports disclose truncation', () => {
+  const dependencies = Object.fromEntries(Array.from({ length: 205 }, (_, i) => [`pkg-${i}`, '1']))
+  expect(compare({}, { dependencies }, undefined, undefined).join('\n')).toContain('INCOMPLETE: report limited')
+})

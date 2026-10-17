@@ -86,12 +86,14 @@ export function outcome(result: unknown): 'pass' | 'fail' | 'unknown' {
   const text = [a.text, r.stdout, r.stderr].filter((v): v is string => typeof v === 'string').join('\n').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
   if (text.length > 65_536) return 'unknown'
   if (/^# fail [1-9]\d*\s*$/m.test(text) || /^\s*Tests(?::|\s+)[^\n]*\b[1-9]\d* failed\b/m.test(text) || /^=+[^\n]*\b[1-9]\d* (?:failed|errors?)\b/m.test(text) || /^test result: FAILED\./m.test(text) || /^\s*--- FAIL: /m.test(text)) return 'fail'
-  const code = r.exitCode ?? r.exit_code
-  if (typeof code === 'number' && Number.isInteger(code)) return code === 0 ? 'pass' : 'fail'
+  const code = 'exitCode' in r ? r.exitCode : r.exit_code
+  if ('exitCode' in r || 'exit_code' in r) return typeof code === 'number' && Number.isInteger(code) ? code === 0 ? 'pass' : 'fail' : 'unknown'
   // Builtin Bash exposes tool failure via isError and foreground completion via interrupted/streams, not exitCode.
   return typeof r.stdout === 'string' && typeof r.stderr === 'string' && r.interrupted === false ? 'pass' : 'unknown'
 }
 export function isCheck(command: string): boolean {
+  // Known introspection-only options do not run the check itself.
+  if (/(?:^|\s)(?:--help|-h|--version|-V|--collect-only|--co|--listTests|--list-tests|--showConfig|--show-config|--list|-list)(?:\s|=|$)/.test(command)) return false
   // Conservative whole-command allowlist; compound shell programs are not proof of a check.
   return /^(?:(?:npm|pnpm|yarn) (?:run )?(?:test(?::[\w-]+)?|typecheck|lint)|npx (?:tsc|vitest|jest|eslint)|(?:pytest|vitest|jest|tsc|eslint)|cargo (?:test|check|clippy)|go test)\b[^;&|<>\n]*$/.test(command.trim())
 }

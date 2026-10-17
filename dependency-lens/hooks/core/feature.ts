@@ -1,4 +1,12 @@
 import { git, object, restore, safeText, type Port } from './runtime.ts'
+function stable(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stable)
+  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, stable(item)]))
+  return value
+}
+function validPackages(value: unknown): boolean {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.values(value).every(item => item !== null && typeof item === 'object' && !Array.isArray(item))
+}
 export function compare(beforeValue: unknown, afterValue: unknown, oldValue: unknown, newValue: unknown): string[] {
   const before = object(beforeValue), after = object(afterValue), old = object(oldValue), next = object(newValue), lines: string[] = [], direct = new Set<string>()
   for (const section of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
@@ -10,7 +18,7 @@ export function compare(beforeValue: unknown, afterValue: unknown, oldValue: unk
   }
   const aScripts = object(before.scripts), bScripts = object(after.scripts)
   for (const name of ['preinstall', 'install', 'postinstall']) if (aScripts[name] !== bScripts[name]) lines.push(`LIFECYCLE ${name}: ${aScripts[name] === undefined ? 'added' : bScripts[name] === undefined ? 'removed' : 'changed'}`)
-  if (![2, 3].includes(Number(old.lockfileVersion)) || ![2, 3].includes(Number(next.lockfileVersion)) || !old.packages || !next.packages || typeof old.packages !== 'object' || typeof next.packages !== 'object' || Array.isArray(old.packages) || Array.isArray(next.packages)) {
+  if (![2, 3].includes(Number(old.lockfileVersion)) || ![2, 3].includes(Number(next.lockfileVersion)) || !validPackages(old.packages) || !validPackages(next.packages)) {
     lines.push('INCOMPLETE: npm package-lock v2/v3 required on both sides; manifest comparison only')
     return lines.length > 200 ? [...lines.slice(0, 200), 'INCOMPLETE: report limited to 200 entries'] : lines
   }
@@ -18,7 +26,7 @@ export function compare(beforeValue: unknown, afterValue: unknown, oldValue: unk
   for (const path of [...new Set([...Object.keys(a), ...Object.keys(b)])].sort()) {
     if (!path) continue
     const av = object(a[path]), bv = object(b[path])
-    if (JSON.stringify(av) === JSON.stringify(bv)) continue
+    if (JSON.stringify(stable(av)) === JSON.stringify(stable(bv))) continue
     const kind = a[path] === undefined ? 'ADDED' : b[path] === undefined ? 'REMOVED' : 'CHANGED'
     if (kind === 'ADDED') added++; else if (kind === 'REMOVED') removed++; else changed++
     lines.push(`${direct.has(path) ? 'DIRECT-LOCK' : 'TRANSITIVE'} ${kind} ${safeText(path)}: ${safeText(av.version ?? '(absent)')} -> ${safeText(bv.version ?? '(absent)')}`)

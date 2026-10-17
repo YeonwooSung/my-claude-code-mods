@@ -70,3 +70,24 @@ test('bounded reports explicitly disclose truncation instead of silently hiding 
 test('oversized single lines are omitted before expensive masking rather than scanned unboundedly', () => {
   expect(safeText('x'.repeat(100_000))).toContain('OMITTED: oversized line')
 })
+test('invalid explicit exit codes cannot fall back to a successful-looking Bash envelope', async () => {
+  for (const exitCode of ['0', null, NaN, Infinity, 0.5]) {
+    const f = new Feature()
+    await f.observe(observation('a', 'a', { result: { stdout: '', stderr: '', interrupted: false, exitCode } }), io())
+    expect(await f.command('', io())).toContain('UNKNOWN')
+  }
+})
+test('help and collection commands do not become completed verification evidence', async () => {
+  const f = new Feature()
+  for (const command of ['npm test -- --help', 'npx tsc --showConfig', 'pytest --collect-only', 'go test -list .']) {
+    await f.observe({ ...observation('a', 'a'), input: { command } }, io())
+  }
+  expect(f.data.checks).toHaveLength(0)
+})
+test('latest check replaces an earlier failure without duplicating the command', async () => {
+  const f = new Feature()
+  await f.observe(observation('a', 'a', { isError: true }), io())
+  await f.observe(observation('a', 'a'), io())
+  expect(f.data.checks).toHaveLength(1)
+  expect(await f.command('', io())).toContain('PASS npm test')
+})

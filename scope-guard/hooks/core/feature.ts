@@ -8,7 +8,8 @@ export class Feature {
     if (typeof target === 'string') this.data.writes = bounded([...new Set([...this.data.writes, safeText(relativePath(io.cwd, target) ?? target)])])
   }
   async command(args: string, io: Port): Promise<string> {
-    const [verb, ...rest] = args.trim().split(/\s+/); const path = rest.join(' ')
+    const parsed = /^(\S+)(?:\s+([\s\S]*))?$/.exec(args.trim())
+    const verb = parsed?.[1] ?? '', path = parsed?.[2] ?? ''
     if (verb === 'allow') {
       const rel = relativePath(io.cwd, path)
       if (!path || rel === undefined || /(^|\/)\.\.(\/|$)/.test(path)) return 'Invalid project-relative scope path'

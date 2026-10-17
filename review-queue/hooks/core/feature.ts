@@ -15,7 +15,8 @@ export class Feature {
   data: { groups: Group[]; reviews: Review[] }
   constructor(value?: unknown) { this.data = restore(value, { groups: [] as Group[], reviews: [] as Review[] }) }
   async command(args: string, io: Port): Promise<string> {
-    const [verb, ...rest] = args.trim().split(/\s+/); const text = rest.join(' ')
+    const parsed = /^(\S+)(?:\s+([\s\S]*))?$/.exec(args.trim())
+    const verb = parsed?.[1] ?? '', text = parsed?.[2] ?? ''
     if (verb === 'help') return '/review-queue [group <purpose> | <path>] [mark <path> | unmark <path> | list | reset] — file-level review; staged and unstaged edits invalidate marks.'
     if (verb === 'group') {
       const [purpose, path = ''] = entries(text), rel = relativePath(io.cwd, path)

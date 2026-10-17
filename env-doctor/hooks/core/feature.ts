@@ -54,7 +54,11 @@ export class Feature {
       this.data.requiredEnv = bounded([...new Set([...this.data.requiredEnv, name])])
     } else if (verb && verb !== 'check') return 'Usage: /env-doctor [check | require <ENV_NAME> | reset]'
     let manifest: Record<string, unknown>
-    try { manifest = object(JSON.parse(await io.read(`${io.cwd}/package.json`))) }
+    try {
+      const parsed: unknown = JSON.parse(await io.read(`${io.cwd}/package.json`))
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('JSON object required')
+      manifest = object(parsed)
+    }
     catch { return 'Env Doctor: package.json manifest unavailable or malformed' }
     const engines = object(manifest.engines), lines = ['Env Doctor — presence only; no environment values retained']
     const inspect = async (binary: string, range: string) => {

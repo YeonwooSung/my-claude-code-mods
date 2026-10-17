@@ -20,3 +20,18 @@ test('watch targets persist and reports explicitly bound the supported analysis'
   expect(report).toContain('src/shared.ts')
   expect(report).toContain('relative JS/TS')
 })
+test('static require, dynamic literal imports and re-exports deduplicate affected consumers', () => {
+  const result = analyze({ 'shared.ts': '', 'a.ts': "const x = require('./shared'); import('./shared')", 'b.ts': "export * from './a'", 'unrelated.ts': '' }, ['shared.ts'])
+  expect(result.affected).toEqual(['a.ts', 'b.ts'])
+  expect(result.unresolved).toEqual([])
+})
+test('unreadable source files preserve known edges and disclose incomplete scanning', async () => {
+  const port = { ...io, run: async () => ({ exitCode: 0, stdout: 'shared.ts\0consumer.ts\0unreadable.ts\0', stderr: '' }), read: async (path: string) => { if (path.endsWith('/unreadable.ts')) throw new Error('EACCES'); return path.endsWith('/consumer.ts') ? "import './shared'" : '' } }
+  const report = await new Feature().command('shared.ts', port)
+  expect(report).toContain('AFFECTED consumer.ts')
+  expect(report).toContain('INCOMPLETE')
+})
+test('oversized source scan stops and explicitly discloses the byte bound', async () => {
+  const port = { ...io, run: async () => ({ exitCode: 0, stdout: 'huge.ts\0', stderr: '' }), read: async () => 'x'.repeat(2 * 1024 * 1024 + 1) }
+  expect(await new Feature().command('huge.ts', port)).toContain('INCOMPLETE')
+})
