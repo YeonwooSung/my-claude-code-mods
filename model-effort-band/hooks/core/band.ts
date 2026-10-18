@@ -69,8 +69,9 @@ export class BandState {
 
   observeStep(step: { model: string; effort?: unknown; agentId?: string }): void {
     if (step.agentId !== undefined) return
+    // An omitted value is not an effort change; only reuse it for this model.
+    if (step.model !== this.model || step.effort !== undefined) this.effort = step.effort
     this.model = step.model
-    this.effort = step.effort
   }
 
   reset(): void {

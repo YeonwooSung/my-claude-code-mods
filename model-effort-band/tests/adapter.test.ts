@@ -74,14 +74,14 @@ test('preserves each streamed chunk and the generator final result', async ($, o
   expect(content).toContain('깊게')
 })
 
-test('subagent steps do not change main effort and missing main effort clears it', async ($, on) => {
+test('subagent steps and omitted main effort preserve the last effort', async ($, on) => {
   setup(on)
   stream(on)
   for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-4-6', effort: 'low', messageCount: 1 })) {}
   for await (const _ of $.turn.step({ turnId: 'a1', index: 0, model: 'haiku', effort: 'max', agentId: 'agent1', messageCount: 1 })) {}
   expect(JSON.stringify(await $.ui.render(renderInput()))).toContain('빠르게')
   for await (const _ of $.turn.step({ turnId: 't1', index: 1, model: 'claude-opus-4-6', messageCount: 1 })) {}
-  expect(JSON.stringify(await $.ui.render(renderInput()))).toContain('unknown')
+  expect(JSON.stringify(await $.ui.render(renderInput()))).toContain('빠르게')
 })
 
 test('reads the selected model on every paint and hides mismatched request effort', async ($, on) => {
@@ -128,17 +128,44 @@ test('propagates downstream streaming failure without retry', async ($, on) => {
   expect(calls).toBe(1)
 })
 
-test('turn and session lifecycle resets prevent stale effort', async ($, on) => {
+test('retains the last effort during tools, idle renders and the next turn', async ($, on) => {
   setup(on)
   stream(on)
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
-  on('session.end', () => ({ sessionId: 's1' }))
-  for (const boundary of ['turn', 'session']) {
-    for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-4-6', effort: 'high', messageCount: 1 })) {}
-    if (boundary === 'turn') await $.turn.start({ text: 'next', turnId: 't2' })
-    else await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
-    expect(JSON.stringify(await $.ui.render(renderInput()))).toContain('unknown')
+  let release!: () => void
+  let entered!: () => void
+  const pending = new Promise<void>(resolve => { release = resolve })
+  const started = new Promise<void>(resolve => { entered = resolve })
+  on('tool.call', async () => { entered(); await pending; return { result: 'ok' } })
+  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-4-6', effort: 'high', messageCount: 1 })) {}
+  const tool = $.tool.call({ tool: 'Bash', command: 'pwd', tool_use_id: 'tool1' })
+  await started
+  try {
+    const input = renderInput()
+    const content = JSON.stringify(await $.ui.render({ ...input, props: { ...input.props, isWorking: true } }))
+    expect(content).toContain('깊게')
+    expect(content).not.toContain('unknown')
+  } finally {
+    release()
+    await tool
   }
+  expect(JSON.stringify(await $.ui.render(renderInput()))).toContain('깊게')
+  await $.turn.start({ text: 'next', turnId: 't2' })
+  expect(JSON.stringify(await $.ui.render(renderInput()))).toContain('깊게')
+  for await (const _ of $.turn.step({ turnId: 't2', index: 0, model: 'claude-opus-4-6', messageCount: 1 })) {}
+  expect(JSON.stringify(await $.ui.render(renderInput()))).toContain('깊게')
+  for await (const _ of $.turn.step({ turnId: 't2', index: 1, model: 'claude-opus-4-6', effort: 'low', messageCount: 1 })) {}
+  expect(JSON.stringify(await $.ui.render(renderInput()))).toContain('빠르게')
+})
+
+test('ending the session clears the retained effort before a missing-effort request', async ($, on) => {
+  setup(on)
+  stream(on)
+  on('session.end', () => ({ sessionId: 's1' }))
+  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-4-6', effort: 'high', messageCount: 1 })) {}
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+  for await (const _ of $.turn.step({ turnId: 't2', index: 0, model: 'claude-opus-4-6', messageCount: 1 })) {}
+  expect(JSON.stringify(await $.ui.render(renderInput()))).toContain('unknown')
 })
 
 test('settings commands reset observation after passing through their result', async ($, on) => {

@@ -2,6 +2,7 @@
 
 - 작성일: 2026-10-13 (Asia/Seoul)
 - 상태: 사용자 승인 후 구현·자동 검증·독립 코드 리뷰 완료.
+- 동작 개정: 2026-10-18, 툴 호출·대기·새 턴에서 마지막 effort 유지 (사용자 요청).
 - 모드명 / 위치: `model-effort-band` / `model-effort-band/`
 - 목적: Claude Code 입력창 위에서 현재 모델과 메인 대화의 effort를 한눈에 확인한다.
 - 디자인 근거: 사용자가 첨부한 모델별 녹색·파랑·보라 테두리 띠. 이미지의 `5.5`는 예시이며 실제 모델의 버전을 표시한다.
@@ -40,7 +41,7 @@
 - `xhigh` → `▰▰▰▰▱`, `더 깊게`, 노랑.
 - `max` → `▰▰▰▰▰`, `최대로`, 노랑.
 - 숫자 effort: 유한한 0 이상의 숫자 그대로 표시하고 게이지·수준 설명은 생략한다. 숫자의 의미를 임의로 등급화하지 않는다.
-- 미관측·누락·유효하지 않은 effort: `unknown · 확인 전`, 게이지 없음.
+- 표시할 관측값이 없거나 유효하지 않은 effort: `unknown · 확인 전`, 게이지 없음.
 - 알 수 없는 문자열 effort: 안전하게 정리한 원래 문자열, 게이지·수준 설명 없음.
 - effort 설명은 수준을 이해하기 위한 문구이며 응답 속도나 품질에 대한 측정·보장이 아니다.
 - 모든 모델 × 모든 effort 조합을 허용한다. 모델 종류에서 effort를 추정하지 않는다.
@@ -74,10 +75,10 @@ effort의 신뢰 가능한 입력은 메인 대화의 `turn.step`에서 받은 `
 
 상태는 register 호출마다 생성한 하나의 `BandState` 인스턴스에 저장한다:
 
-- `observeStep({ model, effort, agentId })`: `agentId`가 없을 때만 모델과 effort를 교체한다. effort 누락도 교체하므로 이전 값이 남지 않는다.
+- `observeStep({ model, effort, agentId })`: `agentId`가 없을 때만 관측한다. 같은 모델에서 effort가 생략되면 기존 값을 유지하며, 새 값(숫자 0 포함)이 전달되면 갱신한다. 다른 모델의 요청은 effort가 생략되더라도 관측 모델·effort를 교체해 이전 모델의 값이 넘어가지 않게 한다.
 - `reset()`: 관측 모델·effort를 모두 비운다.
 - `snapshot(selectedModel)`: 현재 선택 모델과 관측 모델의 문자열이 같은 경우에만 관측 effort를 반환한다. 모델 별칭과 resolved ID가 다르면 안전하게 `unknown`으로 표시한다.
-- `session.start`, `session.end`, 메인 `turn.start`에서 reset한다. `/clear`, resume, reload 뒤에도 이전 상태가 남지 않는다.
+- `session.start`, `session.end`에서 reset한다. 메인 `turn.start`는 repaint만 수행해 다음 턴·툴 호출·대기 화면에서도 마지막 관측값을 유지한다. `/clear`, resume, reload 뒤에도 이전 상태가 남지 않는다.
 - `classic.PostModelSwitch`에서 reset하고 invalidate한다.
 - 성공한 `config.set` 뒤에 reset하고 invalidate한다. 설정 키 목록에 의존하지 않기 위해 모든 성공한 설정 변경에서 관측 effort를 무효화한다. 거부된 변경은 상태를 유지한다.
 - `command.run`의 `model`, `effort`, `config`를 통과시킨 뒤 reset하고 invalidate한다. 설정 UI가 취소되어도 다음 요청까지 effort가 `unknown`인 보수적인 동작을 허용한다.
@@ -117,7 +118,7 @@ model-effort-band/
 
 1. 모델명 형식, 모델/effort 조합, 누락·임의값·제어 문자를 코어 테스트로 검증한다.
 2. 폭 0/1/29/30/59/60과 행 수 0/1/2/3에서 레이아웃 전환을 검증한다.
-3. 서브에이전트 격리, 모델 변경, effort 누락, 세션 reset을 검증한다.
+3. 서브에이전트 격리, 모델 변경, 같은 모델의 effort 누락 시 유지, 새 값 갱신, 턴 간 유지와 세션 reset을 검증한다.
 4. 실제 엔진 키트로 스트리밍 청크와 generator 최종 결과가 보존되는지 검증한다.
 5. 실제 엔진 키트로 survey pass-through, 다른 모드 트리 보존, 조회·invalidate 실패와 설정 변경 거부를 검증한다.
 6. `npm test`, 엔진 모드 테스트, typecheck, plugin validate를 실행한다. 기존 테스트 실패도 빠짐없이 보고한다.
@@ -148,3 +149,10 @@ model-effort-band/
 - Minor 문서 지적: 렌더 실패 전체를 검증했다는 표현을 실제 테스트 대상인 모델 조회·화면 갱신 실패로 좁혔다. `ui.resolve`/요소 생성 실패 분기와 downstream `ui.render` 거부는 전용 테스트가 없다.
 - 실제 터미널·Desktop 픽셀, 임의 Unicode 말줄임, 여러 모드가 동시에 표시되는 화면은 미검증이다. 코드와 엔진 타입이 보장하는 폭 제한·말줄임·트리 보존 및 스크롤 계약을 사용하며 실제 화면 확인 시 재평가한다.
 - 최종 브랜치는 `feat/model-effort-band`에 보존한다. 다른 작업이 진행 중인 `main`에 대한 통합과 원격 push는 별도 선택 후 수행한다.
+
+## 8. effort 유지 수정 (2026-10-18)
+
+- 재현: 같은 모델의 effort 누락이 기존 값을 지우고, 새 턴 시작 시에도 reset되어 다음 관측 전까지 `unknown`이 표시됐다.
+- 수정: 같은 모델에서 effort가 생략되면 마지막 값을 유지하고 턴 시작 시에는 초기화하지 않는다. 세션·모델·설정 변경의 초기화와 서브에이전트 격리는 유지한다.
+- TDD: 기존 구현에서 코어 회귀 2건과 어댑터 회귀 2건이 실패하는 것을 확인했다. 수정 후 새 모드 코어 40개와 Claude Code 2.1.301 엔진 테스트 59개가 모두 통과했다.
+- 전체 `npm test` 442개, 전체 typecheck 및 plugin validate도 통과했다. 실시간 화면 캡처 대신 엔진 렌더 트리에서 툴 실행을 대기시킨 상태·idle 표시·다음 턴의 유지 동작을 검증했다.

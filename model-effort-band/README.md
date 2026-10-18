@@ -1,6 +1,6 @@
 # Model Effort Band
 
-A colored band directly above the Claude Code prompt shows the selected model and the effort observed on the latest main-conversation request.
+A colored band directly above the Claude Code prompt shows the selected model and the most recently observed main-conversation effort.
 
 ```text
 ╭────────────────────────────────────────────────────────────╮
@@ -35,9 +35,9 @@ Mods load by default starting with Claude Code 2.1.287. This mod's event and ren
 
 - `low`, `medium`, `high`, `xhigh`, `max` fill one through five gauge cells. The Korean captions describe effort, not measured speed or answer quality.
 - The selected model is read on every render. Effort comes only from a main `turn.step` observed by this mod. No defaults are guessed from model family or settings.
-- Before a request, after a new turn/session/reload, or after model/settings changes, effort displays `unknown` until observed again. Any successful configuration change clears observation; so does `/model`, `/effort`, or `/config`, including a cancelled picker.
+- Before the first effort observation, after a new session/reload, or after model/settings changes, effort displays `unknown` until observed again. Any successful configuration change clears observation; so does `/model`, `/effort`, or `/config`, including a cancelled picker.
 - If the request's model differs from the selected model, effort stays `unknown`. This includes alias/resolved-ID mismatches and request fallbacks. This band shows the **selected model**, not a history of actual request models.
-- Subagent requests cannot replace main-conversation effort. Missing effort clears the old value. Numeric effort is shown literally without a gauge; future effort strings are shown safely without interpretation.
+- Subagent requests cannot replace main-conversation effort. During tool calls, idle periods, and new turns, the last observed effort stays visible. A step that omits effort keeps the last value only for the same model; a newly provided effort replaces it. A different request model clears the old value instead of inheriting it. Numeric effort is shown literally without a gauge; future effort strings are shown safely without interpretation.
 - The observed request is the value at this mod's hook position. A later mod can still rewrite the request; the band does not verify that later rewrite.
 
 ## Layout and surfaces

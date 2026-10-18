@@ -61,13 +61,13 @@ test('reports invalid or missing effort as unknown instead of a model default', 
   }
 })
 
-test('ignores subagents and clears omitted effort rather than retaining an old value', () => {
+test('ignores subagents and retains omitted effort for the same model', () => {
   const state = new BandState()
   state.observeStep({ model: 'opus', effort: 'low' })
   state.observeStep({ model: 'haiku', effort: 'max', agentId: 'a1' })
   expect(state.snapshot('opus').effort).toBe('low')
   state.observeStep({ model: 'opus' })
-  expect(state.snapshot('opus').effort).toBeUndefined()
+  expect(state.snapshot('opus').effort).toBe('low')
 })
 
 test('only shows observed effort for exactly the selected model and clears on reset', () => {
@@ -89,3 +89,28 @@ for (const [columns, rows, layout] of [
     expect(bandView('opus', 'high', columns as number, rows as number).layout).toBe(layout)
   })
 }
+
+test('a new main effort replaces the retained value, including numeric zero', () => {
+  const state = new BandState()
+  state.observeStep({ model: 'opus', effort: 'high' })
+  state.observeStep({ model: 'opus' })
+  expect(state.snapshot('opus').effort).toBe('high')
+  state.observeStep({ model: 'opus', effort: 'low' })
+  expect(state.snapshot('opus').effort).toBe('low')
+  state.observeStep({ model: 'opus', effort: 0 })
+  state.observeStep({ model: 'opus' })
+  expect(state.snapshot('opus').effort).toBe(0)
+})
+
+test('a different main model never inherits effort or resurrects an older value', () => {
+  const state = new BandState()
+  state.observeStep({ model: 'opus', effort: 'high' })
+  state.observeStep({ model: 'sonnet' })
+  expect(state.snapshot('sonnet').effort).toBeUndefined()
+  state.observeStep({ model: 'opus' })
+  expect(state.snapshot('opus').effort).toBeUndefined()
+  state.observeStep({ model: 'opus', effort: 'low' })
+  state.reset()
+  state.observeStep({ model: 'opus' })
+  expect(state.snapshot('opus').effort).toBeUndefined()
+})

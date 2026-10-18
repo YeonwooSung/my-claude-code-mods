@@ -16,7 +16,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => { state.reset(); repaint($); return next(e) })
   on('session.end', async ($, e, next) => { state.reset(); repaint($); return next(e) })
   on('turn.start', async ($, e, next) => {
-    state.reset(); repaint($)
+    repaint($)
     return next(e)
   })
   on('turn.step', async function* ($, e, next) {
