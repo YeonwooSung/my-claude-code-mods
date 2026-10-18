@@ -109,8 +109,35 @@ export class Profiler {
     if (!turn) return
     if (turn.end === undefined) turn.end = t
     if (reason !== undefined) turn.reason = reason
+    // Completion is authoritative even when a stream/tool's cleanup arrives late.
+    for (const id of [...this.openSteps]) {
+      if (this.steps.get(id)?.turnId === turnId) this.stepEnd(turn.end, id)
+    }
+    for (const id of [...this.openTools]) {
+      const tool = this.tools.get(id)
+      if (tool?.turnId !== turnId) continue
+      tool.end = turn.end
+      this.openTools.delete(id)
+    }
     this.unstack(turn.ctx, turnId)
     this.version += 1
+  }
+
+  // StopFailure can arrive before turn.complete after a terminal API error.
+  // Only settle that loop: independent background agents may still be working.
+  stopFailure(t: number, ctx = MAIN): void {
+    for (const turnId of [...(this.openTurns.get(ctx) ?? [])]) this.turnComplete(t, turnId, 'error')
+    if (ctx !== MAIN) this.subagentStop(t, ctx)
+    for (const id of [...this.openSteps]) {
+      if (this.steps.get(id)?.ctx === ctx) this.stepEnd(t, id)
+    }
+    for (const id of [...this.openTools]) {
+      const tool = this.tools.get(id)
+      if (tool?.ctx !== ctx) continue
+      tool.end = t
+      this.openTools.delete(id)
+      this.version += 1
+    }
   }
 
   stepStart(t: number, args: { turnId: string; index: number; model: string; effort?: string | number; agentId?: string }): string {

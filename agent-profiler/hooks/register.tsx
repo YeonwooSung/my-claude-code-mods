@@ -242,6 +242,13 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  on('classic.StopFailure', async ($, e, next) => {
+    safe(() => profiler.stopFailure(Date.now(), e.agent_id))
+    paint($, true)
+    safe(() => $.clock.after(0, () => autoExport($, options)))
+    return next(e)
+  })
+
   on('turn.step', async function* ($, e, next) {
     let id = ''
     safe(() => {

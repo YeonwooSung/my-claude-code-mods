@@ -171,3 +171,43 @@ test('a stopped subagent closes its own open requests and tools', () => {
   expect(s.steps[0]?.end).toBe(10)
   expect(s.tools.find(t => t.id === 'g')?.end).toBe(10)
 })
+
+test('an errored turn closes its requests and tools without stopping a background agent', () => {
+  const p = new Profiler('s')
+  p.turnStart(0, 't')
+  p.stepStart(1, { turnId: 't', index: 0, model: 'm' })
+  p.toolStart(2, { id: 'read', tool: 'Read', input: {} })
+  p.subagentStart(3, 'bg', 'Explore')
+  p.turnComplete(10, 't', 'error')
+  expect(p.running(100).map(r => r.ctx)).toEqual(['bg'])
+  expect(p.snapshot(100).steps[0]?.end).toBe(10)
+  expect(p.snapshot(100).tools[0]?.end).toBe(10)
+})
+
+test('a rate-limit failure freezes its context and a later turn starts fresh', () => {
+  const p = new Profiler('s')
+  p.turnStart(0, 't')
+  const step = p.stepStart(1, { turnId: 't', index: 0, model: 'm' })
+  p.stopFailure(10)
+  expect(p.isLive).toBe(false)
+  expect(p.running(100)).toEqual([])
+  expect(p.snapshot(100).turns[0]?.end).toBe(10)
+  expect(p.snapshot(100).turns[0]?.reason).toBe('error')
+  p.stepEnd(100, step) // late cleanup must not extend the failed request
+  p.turnComplete(100, 't', 'error')
+  expect(p.snapshot(100).steps[0]?.end).toBe(10)
+  expect(p.snapshot(100).turns[0]?.end).toBe(10)
+  p.turnStart(200, 'retry')
+  p.stepStart(201, { turnId: 'retry', index: 0, model: 'm' })
+  expect(p.running(210).map(r => r.ms)).toEqual([9])
+})
+
+test('a subagent API failure leaves the main request running', () => {
+  const p = new Profiler('s')
+  p.stepStart(0, { turnId: 'main', index: 0, model: 'm' })
+  p.subagentStart(1, 'a', 'Explore')
+  p.stepStart(2, { turnId: 'sub', index: 0, model: 'h', agentId: 'a' })
+  p.stopFailure(10, 'a')
+  expect(p.running(100).map(r => r.ctx)).toEqual(['main'])
+  expect(p.snapshot(100).turns.find(t => t.id === 'sub')?.end).toBe(10)
+})

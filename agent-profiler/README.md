@@ -36,6 +36,8 @@ idle: turn.complete -> next turn.start (excluded from agent time)
 
 TTFT and stream times are response-wait times observed at the client, not time the model spent computing. Engine retries are absorbed into one `turn.step`, so they appear as a longer TTFT.
 
+Terminal API failures (including usage/rate limits) close the affected turn and its open requests and tools at `classic.StopFailure`. Waiting for the limit to reset is excluded. Independent background agents keep their own timers; a failed subagent closes only its own context. `turn.complete` also settles any requests or tools still open in that turn.
+
 ## Install
 
 ```

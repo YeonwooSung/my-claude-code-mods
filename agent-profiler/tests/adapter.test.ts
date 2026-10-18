@@ -36,6 +36,23 @@ test('turn.step chunks reach the caller unchanged', async ($, on) => {
 
 const DIR = '/Users/u/.claude/agent-profiler/sess-1'
 
+test('StopFailure closes the failed turn before turn.complete arrives', async ($, on) => {
+  mock.clock(on)
+  const bodies: string[] = []
+  on('session.id', () => ({ value: 'sess-1' }))
+  mock.env(on, { HOME: '/Users/u' })
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('classic.StopFailure', () => ({}))
+  on('fs.write', (_$, e) => { bodies.push(e.text); return { value: undefined } })
+  await $.turn.start({ text: 'go', turnId: 'limited' })
+  await $.classic.StopFailure({ error: 'rate_limit' } as never)
+  await $.command.run({ command: 'profile-export', args: '' } as never)
+  const spans = JSON.parse(bodies[0]!).resourceSpans[0].scopeSpans[0].spans
+  const turn = spans.find((s: { name: string }) => s.name === 'turn')
+  expect(turn).toBeDefined()
+  expect(turn.attributes.some((a: { key: string }) => a.key === 'agent_profiler.incomplete')).toBe(false)
+})
+
 // The 2.1.280 test runner ignores per-test plugin options, so these run with the defaults (no endpoint).
 function oneSession(on: On, writes: string[] | 'deny') {
   mock.env(on, { HOME: '/Users/u' })
