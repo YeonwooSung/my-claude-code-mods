@@ -94,7 +94,7 @@ Per span: name, start/end time, parent, status, and these attributes.
 - Resource: `service.name=claude-code`, `session.id`, `agent_profiler.version`.
 - Turn: `agent_profiler.turn.reason`; `agent_profiler.turn.prompt` (first 120 characters) only with `exportCommandText`.
 - Model request (`chat <model>`): `gen_ai.request.model`, `gen_ai.response.model`, input/output token counts, cache read/creation tokens, finish reason, effort, `agent_profiler.ttft_ms`; child spans `model.ttft`, `model.thinking_stream`, `model.output_stream`.
-- Tool (`execute_tool <tool>`): tool name and call id, `agent_profiler.exec_ms`, `wait_ms`, `permission` decision, `fs.path` and `fs.range` (file tools), `search.pattern` (Glob/Grep, redacted and only with `exportCommandText`), `bash.category`, launched agent id; `agent_profiler.bash.command` only with `exportCommandText`; child spans `tool.exec` and `tool.approval_wait` / `tool.overhead`.
+- Tool (`execute_tool <tool>`): tool name and call id, `agent_profiler.exec_ms`, `wait_ms`, `fs.path` and `fs.range` (file tools), `search.pattern` (Glob/Grep, redacted and only with `exportCommandText`), `bash.category`, launched agent id; `agent_profiler.bash.command` only with `exportCommandText`; child spans `tool.exec` and `tool.approval_wait` / `tool.overhead`.
 - Subagent (`invoke_agent <type>`): agent id and type, whether it ran async.
 - Every span: `agent_profiler.category`, `agent_profiler.observability`, `agent_profiler.incomplete` when still open.
 
@@ -170,3 +170,7 @@ npx -y -p typescript@5 tsc -p agent-profiler --noEmit
 `tsconfig.json` includes `.claude-plugin/types`, where Claude Code writes `claude-code/index.d.ts` each time it loads the mod (the folder is git-ignored). Before the first load, copy the declarations there yourself, e.g. from the `plugin-authoring` skill's `types/claude-code.d.ts` to `agent-profiler/.claude-plugin/types/claude-code/index.d.ts`.
 
 Secret masking is best-effort and covers credential flags, sensitive headers, URL passwords, curl/mysql credentials and common credential fields in JSON strings. It does not sanitize snapshot file contents or retroactively rewrite saved files. Review files before sharing.
+
+## Permissions
+
+Agent Profiler does not register a `tool.check` hook or inspect permission verdicts. Tool calls proceed through the host's normal permission checks. Approval decisions are no longer recorded; the interval before execution is reported as tool overhead rather than a confirmed approval wait. Denied tool outcomes can still be observed through `tool.call`.

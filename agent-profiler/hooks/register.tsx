@@ -287,13 +287,6 @@ export const register: Register = (on, options) => {
     }
   }).catch(($, e, next) => next(e))
 
-  on('tool.check', async ($, e, next) => {
-    const verdict = await next(e)
-    const id = e.tool_use_id
-    if (id !== undefined) safe(() => profiler.toolCheck(id, verdict.decision))
-    return verdict
-  }).catch(($, e, next) => next(e))
-
   on('classic.PostToolUse', async ($, e, next) => {
     safe(() => profiler.toolDuration(e.tool_use_id, e.duration_ms))
     return next(e)
