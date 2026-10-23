@@ -109,3 +109,35 @@ test('automatic save failures surface once as a toast', async ($, on) => {
   expect(toasts.length).toBe(1)
   expect(toasts[0]).toContain(`could not write to ${DIR}`)
 })
+
+for (const decision of ['accept', 'reject'] as const) {
+  test(`collector ${decision} reaches the real report/export path without changing the tool result`, async ($, on) => {
+    const engine = $
+    mock.clock(on)
+    mock.env(on, { HOME: '/Users/u' })
+    const bodies: string[] = []
+    let forwarded = 0
+    on('session.id', () => ({ value: 'permission-session' }))
+    on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+    on('fs.write', (_$, e) => { bodies.push(e.text); return { value: undefined } })
+    on('telemetry.log', { to: 'collector' }, () => { forwarded++; return { value: undefined } })
+    on('classic.PostToolUse', () => ({}))
+    on('tool.call', async ($, e) => {
+      await engine.telemetry.log({ to: 'collector', event: 'tool_decision', loggedAt: new Date().toISOString(),
+        attributes: { tool_use_id: e.tool_use_id!, decision, source: decision === 'accept' ? 'user_temporary' : 'user_reject', ignored: 'YOUR_API_KEY' } })
+      if (decision === 'accept') await engine.classic.PostToolUse({ tool_use_id: e.tool_use_id, duration_ms: 0 } as never)
+      return decision === 'accept' ? { result: 'unchanged' } : { deny: 'host denied' }
+    })
+    await $.turn.start({ text: 'test permission observation', turnId: 'permissions' })
+    const result = await $.tool.call({ tool: 'Bash', command: 'echo example', tool_use_id: 'observed-tool' })
+    expect(result).toEqual(decision === 'accept' ? { result: 'unchanged' } : { deny: 'host denied' })
+    const report = await $.command.run({ command: 'profile', args: '' } as never)
+    expect(report.text).toContain('estimated; 1/1 calls')
+    await $.command.run({ command: 'profile-export', args: '' } as never)
+    const spans = JSON.parse(bodies[0]!).resourceSpans[0].scopeSpans[0].spans
+    const tool = spans.find((s: { name: string }) => s.name === 'execute_tool Bash')
+    expect(tool.attributes).toContainEqual({ key: 'agent_profiler.permission_decision', value: { stringValue: decision } })
+    expect(bodies[0]).not.toContain('YOUR_API_KEY')
+    expect(forwarded).toBe(1)
+  })
+}

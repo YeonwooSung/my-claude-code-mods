@@ -1,3 +1,4 @@
+import { permissionObservation } from './permission.ts'
 import type { AgentRec, Outcome, Snapshot, StepRec, ToolInputSummary, ToolRec, TurnRec, Usage } from './types.ts'
 import { redactSecrets } from './redact.ts'
 
@@ -211,10 +212,13 @@ export class Profiler {
     this.trim()
   }
 
-  toolCheck(id: string, decision: string): void {
+  toolDecision(event: string, attributes: Readonly<Record<string, unknown>>, loggedAt: string): void {
+    const observation = permissionObservation(event, attributes, loggedAt)
+    if (!observation) return
+    const { id, permission } = observation
     const tool = this.tools.get(id)
-    if (!tool) return
-    tool.decision = decision
+    if (!tool || tool.permission || permission.at < tool.start || (tool.end !== undefined && permission.at > tool.end)) return
+    tool.permission = permission
     this.version += 1
   }
 

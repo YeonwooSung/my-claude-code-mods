@@ -39,11 +39,13 @@ export function renderReport(sum: Summary): string {
   )
 
   const t = sum.tools
+  const permission = t.permissionTimed > 0 ? `${fmtMs(t.permissionMs)} [estimated; ${t.permissionTimed}/${t.calls} calls]` : 'unavailable'
   const parallel = t.unionMs > 0 ? (t.sumMs / t.unionMs).toFixed(1) : '1.0'
   lines.push(
     '',
-    `Tools ${t.calls} call(s) · exec ${fmtMs(t.execMs)} [measured] · approval wait ${fmtMs(t.permissionMs)} · overhead ${fmtMs(t.overheadMs)} [inferred] · parallelism ${parallel}×${t.errors ? ` · ${t.errors} error(s)` : ''}${t.denied ? ` · ${t.denied} denied` : ''}`,
+    `Tools ${t.calls} call(s) · exec ${fmtMs(t.execMs)} [measured] · approval/check wait ${permission} · other/unclassified wait ${fmtMs(t.overheadMs)} [inferred] · parallelism ${parallel}×${t.errors ? ` · ${t.errors} error(s)` : ''}${t.denied ? ` · ${t.denied} denied` : ''}`,
   )
+  lines.push(`Permission results [observed] ${t.permissionObserved}/${t.calls} calls; unclassified waits may include approval time.`)
   for (const row of t.slowest) {
     const wait = row.waitMs >= 1_000 ? ` (wait ${fmtMs(row.waitMs)})` : ''
     const where = row.ctx === 'main' ? '' : ` [agent ${row.ctx.slice(0, 8)}]`

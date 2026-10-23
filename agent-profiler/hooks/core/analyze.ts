@@ -1,3 +1,4 @@
+import { toolTiming } from './permission.ts'
 import { classifyCommand, type BashCategory } from './classify.ts'
 import { clip, fmtMs, pct } from './format.ts'
 import { MAIN, isAgentTool, toolLabel } from './profiler.ts'
@@ -28,6 +29,8 @@ export type Summary = {
     sumMs: number
     unionMs: number
     execMs: number
+    permissionObserved: number
+    permissionTimed: number
     permissionMs: number
     // Approval wait as a share of agent time: the union of the waits inside main turns, so at most 1.
     permissionShare: number
@@ -192,11 +195,7 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
   }
 
   const plain = tools.filter(x => !isAgentTool(x.tool))
-  const timed = plain.map(x => {
-    const wall = end(x) - x.start
-    const exec = x.execMs !== undefined ? Math.min(x.execMs, wall) : wall
-    return { x, wall, exec, wait: Math.max(0, wall - exec) }
-  })
+  const timed = plain.map(x => ({ x, ...toolTiming(x, s.now) }))
   const testIntervals: Interval[] = []
   const waitIntervals: Interval[] = []
   let execMs = 0
@@ -205,15 +204,14 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
   let sumMs = 0
   const byTool = new Map<string, { tool: string; calls: number; ms: number }>()
   const byCategory = new Map<BashCategory, { category: BashCategory; calls: number; ms: number }>()
-  for (const { x, wall, exec, wait } of timed) {
+  for (const { x, wall, exec, wait, approval, otherWait } of timed) {
     sumMs += wall
     execMs += exec
-    if (x.decision === 'ask') {
-      permissionMs += wait
-      waitIntervals.push([x.start, x.start + wait])
-    } else {
-      overheadMs += wait
+    if (approval !== undefined) {
+      permissionMs += approval
+      waitIntervals.push([x.start, x.start + approval])
     }
+    overheadMs += otherWait
     const row = byTool.get(x.tool) ?? { tool: x.tool, calls: 0, ms: 0 }
     row.calls += 1
     row.ms += wall
@@ -270,11 +268,13 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
       sumMs,
       unionMs: unionLength(plain.map(x => [x.start, end(x)] as Interval)),
       execMs,
+      permissionObserved: plain.filter(x => x.permission !== undefined).length,
+      permissionTimed: timed.filter(x => x.approval !== undefined).length,
       permissionMs,
       permissionShare: share(waitIntervals),
       overheadMs,
       errors: plain.filter(x => x.isError).length,
-      denied: plain.filter(x => x.denied).length,
+      denied: plain.filter(x => x.denied || x.permission?.decision === 'reject').length,
       byTool: [...byTool.values()].sort((a, b) => b.ms - a.ms),
       slowest: [...timed]
         .sort((a, b) => b.wall - a.wall)
@@ -326,7 +326,7 @@ function buildFindings(sum: Summary): string[] {
     out.push(`Tests took ${pct(sum.bash.testShare, 1)} of agent time (${fmtMs(sum.bash.testMs)} over ${runs} run(s)).`)
   }
   if (sum.tools.permissionShare >= 0.2) {
-    out.push(`Waiting for approval took ${pct(sum.tools.permissionShare, 1)} of agent time (${fmtMs(sum.tools.permissionMs)}); allow rules for repeated commands would remove it.`)
+    out.push(`Observed approval/check wait accounts for ${pct(sum.tools.permissionShare, 1)} of agent time (${fmtMs(sum.tools.permissionMs)}, estimated from ${sum.tools.permissionTimed}/${sum.tools.calls} calls; includes pre-decision checks and hooks).`)
   }
   for (const r of sum.reads) {
     if (r.redundant >= 2) out.push(`${clip(r.path, 80)} was read ${r.reads}× (${r.redundant}× with no edit in between).`)

@@ -1,3 +1,4 @@
+import { toolTiming } from './permission.ts'
 import { classifyCommand } from './classify.ts'
 import { spanId, traceIdFromSession } from './ids.ts'
 import { MAIN, isAgentTool } from './profiler.ts'
@@ -166,9 +167,9 @@ export function toOtlp(s: Snapshot, version: string, options: OtlpOptions = {}):
 
   for (const x of s.tools) {
     if (!want('tool', x.id)) continue
-    const wall = end(x) - x.start
-    const exec = x.execMs !== undefined ? Math.min(x.execMs, wall) : undefined
-    const wait = exec !== undefined ? wall - exec : undefined
+    const timing = toolTiming(x, s.now)
+    const exec = timing.execKnown ? timing.exec : undefined
+    const wait = timing.execKnown ? timing.wait : undefined
     const id = add('tool', x.id, `execute_tool ${x.tool}`, parentOf(x.ctx, x.turnId), x.start, end(x), {
       'gen_ai.operation.name': 'execute_tool',
       'gen_ai.tool.name': x.tool,
@@ -179,7 +180,11 @@ export function toOtlp(s: Snapshot, version: string, options: OtlpOptions = {}):
       'agent_profiler.observability': 'observed',
       'agent_profiler.exec_ms': exec,
       'agent_profiler.wait_ms': wait,
-      'agent_profiler.permission': x.decision,
+      'agent_profiler.permission_decision': x.permission?.decision,
+      'agent_profiler.permission_source': x.permission?.source,
+      'agent_profiler.permission_classifier': x.permission?.classifier,
+      'agent_profiler.permission_wait_ms': timing.approval,
+      'agent_profiler.permission_wait_kind': timing.kind,
       'agent_profiler.fs.path': x.input.path,
       'agent_profiler.fs.range': x.input.range,
       'agent_profiler.search.pattern': text(x.input.pattern),
@@ -187,14 +192,21 @@ export function toOtlp(s: Snapshot, version: string, options: OtlpOptions = {}):
       'agent_profiler.bash.category': x.tool === 'Bash' ? classifyCommand(x.input.command ?? '') : undefined,
       'agent_profiler.launched_agent': x.launchedAgentId,
       'agent_profiler.incomplete': open(x),
-    }, { error: x.denied ? 'denied' : x.isError ? 'tool error' : undefined })
+    }, { error: x.denied || x.permission?.decision === 'reject' ? 'denied' : x.isError ? 'tool error' : undefined })
     if (exec !== undefined && wait !== undefined && x.end !== undefined) {
-      if (wait > 0) {
-        add('tool.wait', x.id, x.decision === 'ask' ? 'tool.approval_wait' : 'tool.overhead', id, x.start, x.start + wait, {
+      if (timing.approval !== undefined && timing.approval > 0) {
+        add('tool.approval', x.id, 'tool.approval_wait', id, x.start, x.start + timing.approval, {
           'agent_profiler.observability': 'inferred',
+          'agent_profiler.permission_wait_kind': timing.kind,
+          'agent_profiler.note': 'estimated prefix includes pre-decision checks and hooks',
         })
       }
-      add('tool.exec', x.id, 'tool.exec', id, x.start + wait, x.end, { 'agent_profiler.observability': 'measured' })
+      if (timing.otherWait > 0) {
+        add('tool.wait', x.id, timing.approval !== undefined ? 'tool.overhead' : 'tool.wait_unclassified', id,
+          x.start + (timing.approval ?? 0), x.start + wait, { 'agent_profiler.observability': 'inferred' })
+      }
+      if (x.permission?.decision !== 'reject')
+        add('tool.exec', x.id, 'tool.exec', id, x.start + wait, x.end, { 'agent_profiler.observability': 'measured' })
     }
   }
 

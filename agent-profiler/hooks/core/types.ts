@@ -34,6 +34,13 @@ export type StepRec = {
   stopReason?: string
 }
 
+export type PermissionObservation = {
+  decision: 'accept' | 'reject'
+  source: 'config' | 'hook' | 'user_permanent' | 'user_temporary' | 'user_abort' | 'user_reject' | 'unknown'
+  at: number
+  classifier?: 'allow' | 'block' | 'no_verdict' | 'unavailable'
+}
+
 export type ToolRec = {
   id: string
   ctx: string
@@ -43,7 +50,7 @@ export type ToolRec = {
   start: number
   end?: number
   execMs?: number
-  decision?: string
+  permission?: PermissionObservation
   isError?: boolean
   denied?: boolean
   launchedAgentId?: string

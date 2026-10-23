@@ -14,7 +14,7 @@ export function session(): Profiler {
   p.toolDuration('r1', 10)
   p.toolEnd(2010, 'r1', ok)
   p.toolStart(2010, { id: 'b1', tool: 'Bash', input: { command: 'npm test' } })
-  p.toolCheck('b1', 'ask')
+  p.toolDecision('tool_decision', { tool_use_id: 'b1', decision: 'accept', source: 'user_temporary' }, '1970-01-01T00:00:03.010Z')
   p.toolDuration('b1', 5000)
   p.toolEnd(8010, 'b1', ok)
   step = p.stepStart(8010, { turnId: 't1', index: 1, model: 'm' })

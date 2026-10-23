@@ -92,7 +92,7 @@ test('test and approval shares stay within agent time with parallel and subagent
   p.subagentStart(0, 'a1', 'runner')
   for (const [id, agentId] of [['b1', undefined], ['b2', undefined], ['b3', 'a1']] as const) {
     p.toolStart(0, { id, tool: 'Bash', agentId, input: { command: 'npm test' } })
-    p.toolCheck(id, 'ask')
+    p.toolDecision('tool_decision', { tool_use_id: id, decision: 'accept', source: 'user_temporary' }, '1970-01-01T00:00:00.600Z')
     p.toolDuration(id, 400)
     p.toolEnd(1_000, id, { denied: false, isError: false })
   }
@@ -106,7 +106,7 @@ test('test and approval shares stay within agent time with parallel and subagent
   expect(sum.tools.permissionMs).toBe(1_800)
   expect(sum.tools.permissionShare).toBe(0.6)
   expect(sum.findings).toContain('Tests took 40% of agent time (1.2s over 3 run(s)).')
-  expect(sum.findings.some(f => f.startsWith('Waiting for approval took 60%'))).toBe(true)
+  expect(sum.findings.some(f => f.startsWith('Observed approval/check wait accounts for 60%'))).toBe(true)
 })
 
 test('tokens per second counts only requests whose stream was timed', () => {

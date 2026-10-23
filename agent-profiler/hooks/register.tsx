@@ -287,6 +287,13 @@ export const register: Register = (on, options) => {
     }
   }).catch(($, e, next) => next(e))
 
+  on('telemetry.log', { to: 'collector' }, ($, e, next) => {
+    const version = profiler.version
+    safe(() => profiler.toolDecision(e.event, e.attributes, e.loggedAt))
+    if (profiler.version !== version) paint($)
+    return next(e)
+  })
+
   on('classic.PostToolUse', async ($, e, next) => {
     safe(() => profiler.toolDuration(e.tool_use_id, e.duration_ms))
     return next(e)

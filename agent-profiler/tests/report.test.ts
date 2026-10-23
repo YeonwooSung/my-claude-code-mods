@@ -54,3 +54,13 @@ test('the report says how many older turns were dropped', () => {
   const text = renderReport(summarize(p.snapshot(100)))
   expect(text).toContain('Covers the last 2 turn(s); 2 older turn(s) dropped (already exported).')
 })
+
+test('a completed call without a permission observation reports unavailable approval timing', () => {
+  const p = new Profiler('no-permission-events')
+  p.turnStart(0, 't')
+  p.toolStart(0, { id: 'a', tool: 'Bash', input: { command: 'npm test' } })
+  p.toolDuration('a', 100)
+  p.toolEnd(1000, 'a', { denied: false, isError: false })
+  p.turnComplete(1000, 't')
+  expect(renderReport(summarize(p.snapshot(1000)))).toContain('approval/check wait unavailable')
+})
