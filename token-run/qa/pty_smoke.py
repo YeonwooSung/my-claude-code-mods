@@ -32,11 +32,9 @@ class Terminal:
         self.raw = open(artifacts / (name + '.ansi'), 'wb')
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
-            env = dict(os.environ)
-            # Do not inherit real auth/provider configuration into this test.
-            for key in list(env):
-                if key.startswith(('ANTHROPIC_', 'CLAUDE_CODE_OAUTH', 'CLAUDE_CODE_USE_')):
-                    env.pop(key)
+            # Copy only fixed, non-credential OS metadata; never enumerate the installer's environment.
+            env = {'PATH': os.getenv('PATH', os.defpath), 'HOME': os.path.expanduser('~'),
+                   'LANG': os.getenv('LANG', 'en_US.UTF-8'), 'TERM': 'xterm-256color'}
             env.update(TERM='xterm-256color', CLAUDE_CONFIG_DIR=str(config),
                        ANTHROPIC_API_KEY='local-test-only', ANTHROPIC_BASE_URL='http://127.0.0.1:1',
                        CLAUDE_CODE_ENABLE_FUNCTION_HOOKS='1', DISABLE_AUTOUPDATER='1',
