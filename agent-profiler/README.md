@@ -2,7 +2,7 @@
 
 A Claude Code mod that shows where an agent session's time goes: model wait, tool execution, subagents, test runs, repeated file reads, and engine overhead. It exports the session as an OTLP trace so you can open it in Jaeger or Grafana Tempo.
 
-Requires Claude Code 2.1.287 or later (desktop 2.1.286). Event shapes follow the 2.1.292 type declarations; the end-to-end probe (`claude -p`), the Jaeger import and the tests ran on Claude Code 2.1.280 with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`.
+Version 0.1.6 is verified on Claude Code **2.1.302**, including a real SDK-host permission/OTLP probe with telemetry export disabled. The function-hooks API is early access; the older 2.1.280–2.1.292 verification described in historical reports does not establish compatibility for this revision.
 
 ## What it shows
 
@@ -27,7 +27,9 @@ turn (turn.start -> turn.complete)                                   observed
 +- tool (tool.call: entry -> next return)                            observed
 |   +- exec = duration_ms                                            measured
 |   +- wait = wall - exec                                            inferred
-|        tool.overhead (permission verdicts are not inspected)
+|        tool.approval_wait (estimated user/classifier prefix when identifiable)
+|        tool.overhead (remaining wait with an identifiable decision)
+|        tool.wait_unclassified (when permission timing is unavailable)
 +- subagent (classic.SubagentStart -> classic.SubagentStop)          observed
 |   +- (recursive) model.request / tool
 +- engine.overhead = turn - (model.request U tool U blocking subagent)   inferred
@@ -94,7 +96,7 @@ Per span: name, start/end time, parent, status, and these attributes.
 - Resource: `service.name=claude-code`, `session.id`, `agent_profiler.version`.
 - Turn: `agent_profiler.turn.reason`; `agent_profiler.turn.prompt` (first 120 characters) only with `exportCommandText`.
 - Model request (`chat <model>`): `gen_ai.request.model`, `gen_ai.response.model`, input/output token counts, cache read/creation tokens, finish reason, effort, `agent_profiler.ttft_ms`; child spans `model.ttft`, `model.thinking_stream`, `model.output_stream`.
-- Tool (`execute_tool <tool>`): tool name and call id, `agent_profiler.exec_ms`, `wait_ms`, `fs.path` and `fs.range` (file tools), `search.pattern` (Glob/Grep, redacted and only with `exportCommandText`), `bash.category`, launched agent id; `agent_profiler.bash.command` only with `exportCommandText`; child spans `tool.exec` and `tool.overhead`.
+- Tool (`execute_tool <tool>`): tool name and call id, `agent_profiler.exec_ms`, `wait_ms`, `fs.path` and `fs.range` (file tools), `search.pattern` (Glob/Grep, redacted and only with `exportCommandText`), `bash.category`, launched agent id; `agent_profiler.bash.command` only with `exportCommandText`; final permission metadata `agent_profiler.permission_decision`, `permission_source`, `permission_classifier` when observed; `permission_wait_ms` and `permission_wait_kind` only when estimable. Child spans: `tool.exec`, `tool.approval_wait`, `tool.overhead` or `tool.wait_unclassified` as applicable. Confirmed rejections have zero execution and no `tool.exec` child.
 - Subagent (`invoke_agent <type>`): agent id and type, whether it ran async.
 - Every span: `agent_profiler.category`, `agent_profiler.observability`, `agent_profiler.incomplete` when still open.
 
@@ -149,7 +151,7 @@ Reports, panels and display labels mask supported credential formats before trun
 - Memory is capped at 20,000 requests and tool calls. Past it, whole finished turns are dropped, oldest first, with their requests, tools and subagents; they were already written as batches. The report then says "covers the last N turns; M older turns dropped".
 - `turn.start` fires only for main-loop turns. Subagents have no `turn` spans of their own: their `chat` and `execute_tool` spans hang directly under `invoke_agent`.
 - Background (async) subagents keep running after the Agent tool returns. Their `invoke_agent` span is still a child of `execute_tool Agent` but outlives it, and the completion notification starts an extra main turn.
-- Event shapes follow the 2.1.292 type declarations; the end-to-end probe, Jaeger import and tests ran on 2.1.280 with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`. Other versions may differ.
+- This revision was verified with the real CLI/SDK host and engine render-tree runner on 2.1.302. Native Desktop pixels, actual terminal permission-dialog interaction, real auto-classifier requests and older engine versions were not exercised by the new permission probe.
 
 ## Tests
 
@@ -173,7 +175,15 @@ Secret masking is best-effort and covers credential flags, sensitive headers, UR
 
 ## Permissions
 
-Agent Profiler does not register a `tool.check` hook or inspect permission verdicts. Tool calls proceed through the host's normal permission checks. Approval decisions are no longer recorded; the interval before execution is reported as tool overhead rather than a confirmed approval wait. Denied tool outcomes can still be observed through `tool.call`.
+Agent Profiler does not register `tool.check`, `classic.PreToolUse` or `classic.PermissionRequest`, and never reads/modifies their return values. Tool calls proceed through normal host permission checks. A `telemetry.log` hook filtered to `{ to: 'collector' }` observes `tool_decision` records and returns `next(e)` unchanged. It retains only the matching tool-use ID, final `accept`/`reject`, a fixed source enum, an optional fixed classifier enum and the decision timestamp. Other attributes (including identity fields and free text) are discarded. The hook does not enable telemetry exporters or send a telemetry record. In the verified engine it receives decisions even with external export disabled.
+
+Final `accept`/`reject` is not the old `allow`/`ask`/`deny` verdict. Decisions from `user_temporary`, `user_permanent`, `user_reject` or `user_abort` can identify a user-related prefix; `config` plus a recognized `classifier_verdict` identifies an auto-check prefix. A bare `config`, `hook`, unknown source or absent event does not identify approval timing. In hosted sessions, saved grants may also retain a user source, so that source alone does not prove a fresh prompt was shown.
+
+For a completed call with execution-duration evidence (or a confirmed rejection), the estimated prefix is `decision timestamp - tool entry`, clamped to the total non-execution interval. It includes preceding checks and hooks, not just human response time. The remaining non-execution interval is reported separately. Missing execution duration, unfinished calls or ambiguous sources leave permission timing unavailable. `/profile` shows `unavailable` instead of a false zero, or an estimate with coverage such as `1/2 calls`; the unclassified remainder may still contain approval time. Reports and OTLP use the same calculation.
+
+Version 0.1.6 replaces the old `agent_profiler.permission` attribute with the final-result fields above. The approval-wait span can return, but is explicitly an estimate with `permission_wait_kind=user|auto`; queries that assumed the old verdict attribute or treated every wait as tool overhead need updating. Existing saved files are not rewritten. A valid late record can update reports and a new `/profile-export` snapshot; an automatic batch already exported before the record arrived is not rewritten. Unknown IDs, invalid timestamps, out-of-call timestamps and duplicate verdicts are ignored.
+
+In `tests/adapter.test.ts`, collector records are injected through the real engine test driver into the registered observer with a local sink; tests assert reports, OTLP fields and unchanged tool results. These fixtures do not upload test records. The core tests also cover absent/invalid data, mixed coverage, classifier observations, subagent IDs and rejection without execution evidence.
 
 ## Network, observed calls and file writes
 
@@ -184,3 +194,11 @@ The only direct network call is `$.http.fetch`: an HTTP POST of OTLP trace JSON 
 POST bodies contain the same trace JSON written locally: session and span IDs, timing, model/token metadata, tool names, paths/ranges, summaries and subagent metadata listed above. Turn prompt prefixes, Bash command text and search patterns are included only when `exportCommandText` is enabled, after best-effort masking. Full model response text is not exported. `$.env.get('HOME')` is used only to expand a leading `~` in `outputDir`; the environment value is not added to the POST body as a separate field. Paths in tool metadata may themselves contain home-directory names.
 
 `$.fs.write` writes only generated `.otlp.json` trace files under `<outputDir>/<sessionId>/` with the exact naming patterns in “Trace files”. The default base is `~/.claude/agent-profiler`; `outputDir` is user configurable. These are data exports, not build, startup, settings or instruction files. This mod does not intentionally edit those files.
+
+## Real permission smoke test
+
+```sh
+python3 agent-profiler/qa/permission_smoke.py --claude-bin /path/to/claude --artifacts /tmp/profiler-permission-smoke
+```
+
+The standard-library-only script starts a temporary driver mod and an isolated copy of this profiler with its output fallback redirected into the fixture. It uses a fresh Claude config, a placeholder credential and a refused loopback API URL; it makes no model request. All telemetry exporters remain disabled. The SDK test host approves only an exact temporary Write fixture after a 300ms delay, or denies it, and also checks an automatically allowed Read. It verifies actual file outcomes, tool-use ID correlation, exported permission metadata/timing, manifest/runtime version agreement and no execution span for a rejection. Only a local `result.json` summary is retained in the requested artifacts directory; no user settings or repository source files are edited.
