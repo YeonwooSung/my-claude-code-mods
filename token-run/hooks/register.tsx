@@ -108,8 +108,8 @@ export const register: Register = on => {
     const request = state.requests.snapshot()
     const columns = Number.isFinite(e.props.bodyColumns) ? Math.max(0, Math.min(80, Math.floor(e.props.bodyColumns))) : 0
     const rows = Number.isFinite(e.props.scroll.bodyRows) ? Math.max(0, Math.min(8, Math.floor(e.props.scroll.bodyRows))) : 0
-    return <Box flexDirection="column">{existing}{Client({ key: 'runner', module: './game.tsx',
-      width: Math.max(1, columns), height: Math.max(1, rows),
-      props: { runId: state.runId, columns, rows, checkpoint: state.game ?? null, best: record.best, error: record.error ?? '', status: request.status, recovered: request.recovered } })}</Box>
+    return <Box flexDirection="column">{existing}<Client key="runner" module="./game.tsx"
+      width={Math.max(1, columns)} height={Math.max(1, rows)}
+      props={{ runId: state.runId, columns, rows, checkpoint: state.game ?? null, best: record.best, error: record.error ?? '', status: request.status, recovered: request.recovered }} /></Box>
   })
 }

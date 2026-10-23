@@ -1,6 +1,6 @@
 {
   "name": "token-run",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A fully local ASCII runner game for Claude Code request failures and short breaks",
   "author": { "name": "YeonwooSung" }
 }
