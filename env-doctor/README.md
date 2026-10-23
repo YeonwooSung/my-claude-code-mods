@@ -55,3 +55,9 @@ This mod makes no `tool.call` of its own. The common Bash-replay implementation 
 There are no HTTP requests, telemetry destinations or automatic uploads in this feature. Local read results support analysis/fingerprints and local report text; masked feature records go only to the plugin store under the current cwd/session identity. No project build, startup, settings or instruction files are edited. User/agent tool calls that are forwarded retain their independent behavior and destinations.
 
 For review: `String.raw`/regular-expression literals in the redactor are string-pattern data, never a shell program. Template literals beginning `#` format record numbers. `constructor` names ordinary TypeScript class initialization. These are not credential reads or command execution. Runtime command access is limited to the concrete cases documented above.
+
+## Directory review: read-to-process boundary
+
+Local package.json engine requirements are read; the process calls receive only fixed --version arguments or the bundled helper path plus a validated environment-variable name. No package.json contents or credential values are passed to these subprocesses.
+
+The destinations of these calls are the local `node`, `npm`, `pnpm`, `yarn` executables and the bundled presence helper. Their stdout/stderr returns to this mod for version/presence checks and local report text; no result is passed to an HTTP client or replay tool. The helper returns presence only. Reports return to the local slash-command caller; persisted feature records go to this plugin’s local cwd/session-scoped store. This mod has no HTTP upload, remote recipient, server-provided command source or own tool replay. It forwards independently requested tool calls once; any network activity of those calls belongs to their original inputs and permissions. The program list above describes what the mod requests; installed executables and user/system configuration retain their own capabilities.

@@ -51,3 +51,9 @@ This mod makes no `tool.call` of its own. The common Bash-replay implementation 
 There are no HTTP requests, telemetry destinations or automatic uploads in this feature. Local read results support analysis/fingerprints and local report text; masked feature records go only to the plugin store under the current cwd/session identity. No project build, startup, settings or instruction files are edited. User/agent tool calls that are forwarded retain their independent behavior and destinations.
 
 For review: `String.raw`/regular-expression literals in the redactor are string-pattern data, never a shell program. Template literals beginning `#` format record numbers. `constructor` names ordinary TypeScript class initialization. These are not credential reads or command execution. Runtime command access is limited to the concrete cases documented above.
+
+## Directory review: read-to-process boundary
+
+The session cwd and user-selected base ref/path scope are used to query the local Git root and changed path names. This adapter has no direct filesystem reader.
+
+The destination of `process.run` is the local Git executable. Its argv contains the documented Git subcommand/options and local project paths or selected refs, with the session cwd as the working directory. File contents are not inserted into shell code, sent as stdin, or posted to a server by this adapter. Git reads the repository locally and returns stdout/stderr for this analysis. Reports return to the local slash-command caller; persisted feature records go to this plugin’s local cwd/session-scoped store. This mod has no HTTP upload, remote recipient, server-provided command source or own tool replay. It forwards independently requested tool calls once; any network activity of those calls belongs to their original inputs and permissions. The program list above describes what the mod requests; installed executables and user/system configuration retain their own capabilities.
