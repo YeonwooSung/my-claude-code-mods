@@ -12,25 +12,25 @@ const serial = <T>(fn: () => Promise<T>): Promise<T> => {
 }
 const port = async ($: EngineInterface): Promise<Port> => {
   const cwd = await $.session.cwd()
-  const io: Port = {
-    cwd,
-    read: async path => await $.fs.read(path),
-    bytes: async path => (await $.fs.read(path, { as: 'bytes' })).base64,
-    stat: path => $.fs.stat(path),
-    list: async path => (await $.fs.list(path)).map(entry => entry.name),
-    run: argv => $.process.run(argv, { cwd, timeoutMs: 10_000 }),
-    env: async key => {
-      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new Error('invalid environment variable name')
-      const r = await $.process.run(['node', '-e', 'process.stdout.write(process.env[process.argv[1]] ? "set" : "")', key], { cwd, timeoutMs: 10_000 })
-      if (r.exitCode !== 0) throw new Error('environment presence unavailable')
-      return r.stdout === 'set' ? 'set' : undefined
-    },
-    revision: () => revision(io),
-    replay: async text => {
-      state.replaying = true
-      try { return await $.tool.call({ tool: 'Bash', command: text, description: 'Replay explicitly selected Command Shelf entry' }) }
-      finally { state.replaying = false }
-    },
+  const unavailable = async (): Promise<never> => { throw new Error('Capability not used by this feature') }
+  const io: Port = { cwd, read: unavailable, run: unavailable, env: unavailable, revision: async () => undefined }
+  io.read = async path => await $.fs.read(path)
+  io.run = argv => {
+    if (argv.length !== 2 || argv[1] !== '--version') throw new Error('Only version probes are supported')
+    switch (argv[0]) {
+      case 'node': return $.process.run(['node', '--version'], { cwd, timeoutMs: 10_000 })
+      case 'npm': return $.process.run(['npm', '--version'], { cwd, timeoutMs: 10_000 })
+      case 'pnpm': return $.process.run(['pnpm', '--version'], { cwd, timeoutMs: 10_000 })
+      case 'yarn': return $.process.run(['yarn', '--version'], { cwd, timeoutMs: 10_000 })
+      default: throw new Error('Unsupported version program')
+    }
+  }
+  io.env = async variableName => {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(variableName)) throw new Error('invalid environment variable name')
+    const program = $.plugin.root + '/hooks/env-presence.mjs'
+    const r = await $.process.run(['node', '--', program, variableName], { cwd, timeoutMs: 10_000 })
+    if (r.exitCode !== 0) throw new Error('environment presence unavailable')
+    return r.stdout === 'set' ? 'set' : undefined
   }
   return io
 }

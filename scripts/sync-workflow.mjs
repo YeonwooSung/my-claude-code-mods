@@ -1,3 +1,4 @@
+import { portSource } from './workflow/ports.mjs'
 import { readFile, writeFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 const market = JSON.parse(await readFile('.claude-plugin/marketplace.json', 'utf8'))
@@ -9,7 +10,7 @@ for (const { name } of market.plugins) {
   for (const [target, source] of [
     [`${name}/hooks/core/runtime.ts`, await readFile('scripts/workflow/runtime.ts', 'utf8')],
     [`${name}/hooks/core/redact.ts`, await readFile('scripts/redact-secrets.ts', 'utf8')],
-    [`${name}/hooks/register.ts`, (await readFile('scripts/workflow/adapter.template.ts', 'utf8')).replaceAll('__NAME__', name).replaceAll('__COMMAND__', command)],
+    [`${name}/hooks/register.ts`, (await readFile('scripts/workflow/adapter.template.ts', 'utf8')).replaceAll('__NAME__', name).replaceAll('__COMMAND__', command).replace('__PORT__', portSource(name))],
   ]) {
     if (process.argv.includes('--check')) assert.equal(await readFile(target, 'utf8'), source, `${target}: run node scripts/sync-workflow.mjs`)
     else await writeFile(target, source)

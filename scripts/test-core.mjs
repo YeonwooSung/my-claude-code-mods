@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 const files = ['agent-profiler', 'context-inspector', 'time-machine', 'loop-detective', 'pin-memo', 'model-effort-band', 'token-run', 'verify-board', 'scope-guard', 'blast-radius', 'decision-ledger', 'handoff-pack', 'command-shelf', 'env-doctor', 'dependency-lens', 'assumption-tracker', 'review-queue'].flatMap(mod =>
   readdirSync(`${mod}/tests`).filter(file => file.endsWith('.test.ts') && file !== 'adapter.test.ts')
     .map(file => `./${mod}/tests/${file}`),
-).concat(['./scripts/workflow/integration.test.mjs', './scripts/workflow/lifecycle.test.mjs']).sort()
+).concat(['./scripts/workflow/integration.test.mjs', './scripts/workflow/lifecycle.test.mjs', './scripts/workflow/surfaces.test.mjs']).sort()
 const result = spawnSync(process.execPath, ['--experimental-transform-types', '--import', './scripts/core-loader.mjs', '--test', '--test-concurrency=1', ...files], { stdio: 'inherit' })
 if (result.error) throw result.error
 process.exit(result.status ?? 1)

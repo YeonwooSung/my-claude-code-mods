@@ -32,10 +32,26 @@ Node/package-manager requirements come from package.json. Conservative ranges: e
 
 Local preview before marketplace publication: `claude --plugin-dir ./env-doctor` from this checkout. Engine tests were run with Claude Code 2.1.302.
 
-## Hook behavior, local processes and data flow
+## Hooks, programs and data flow
 
-The shared adapter registers `tool.call` and can see tool inputs/results, including network-capable tools. It forwards each original call once and returns its result unchanged; an observer failure does not retry the tool or change a permission decision. It does not register a `tool.check` hook. Its tool hook forwards immediately because this feature has no observer. Explicit checks read local `package.json`, execute local `node --version` and declared npm/pnpm/yarn version probes, and check user-named environment variables. The environment-presence helper runs a fixed Node script with the validated variable name as an argument; it outputs only `set` or an empty string, never the value. Version processes inherit their normal local environment.
+Reads local package.json to compare Node/package-manager versions and checks user-selected variable names. Its tool hook only forwards.
 
-The adapter's `$.process.run(argv, { cwd, timeoutMs: 10_000 })` bridge executes local argument arrays supplied by the feature/runtime, not commands downloaded from a server. Shared Git evidence helpers use `rev-parse`, `status`, `diff` (with external diff/text conversion disabled) and `ls-files`; results and any read file bytes are processed locally. The shared adapter also defines a Node environment-presence helper (used by Env Doctor) and a Bash replay helper (used only by Command Shelf's explicit run command). Defining these helpers does not call them in other features.
+The `command.run` hook answers only `/env-doctor` with local report/control text. It does not intercept unrelated slash commands. The `tool.call` hook forwards each original event once and returns its outcome unchanged; observer failures do not retry a tool. No `tool.check`, permission-mode or Remote Control override is installed.
 
-This mod has no direct HTTP requests, telemetry endpoint or fixed remote hosts. Its own retained data is masked feature state in the local plugin store, isolated by cwd/session, and reports returned to the user's command UI. Conversation/tool data is not automatically uploaded. Forwarded user/agent tool calls keep their original behavior, including any network destinations and data they independently specify; this feature does not invoke the Bash replay helper. Local file reads and the process bridge do not by themselves upload files or conversation text. No project build, startup, settings or instruction files are edited by this feature.
+The following complete argv templates describe every program launched with `process.run`. Each item is an argument array passed directly to the host, with no shell command parsing. `<cwd>`/`<repo>` are the current project or Git root, `<base>` is the validated selected ref, `<manifest>` is `package.json` or `package-lock.json`, and `<path>` is a selected project file. `[--cached]` denotes two fixed variants, with and without that argument. Every call has a 10-second timeout.
+
+```text
+node --version
+npm --version
+pnpm --version
+yarn --version
+node -- <plugin-root>/hooks/env-presence.mjs <variable-name>
+```
+
+Version probes are dispatched to four separate calls with whole literal argv arrays; unsupported programs/options are refused. The presence check runs the bundled `.mjs` file, not `node -e` or downloaded code. It validates the variable name and uses `Object.hasOwn(process.env, variableName)` to test existence without retrieving a value. It prints only `set` or nothing. SET includes a variable declared with an empty value; MISSING means the name is absent. Required names and presence results remain local; no credential value is read, stored or shared. There is no sensitive `userConfig` value because no credential is required.
+
+This mod makes no `tool.call` of its own. The common Bash-replay implementation is not included in its generated adapter; observing/forwarding an existing tool call does not create another call.
+
+There are no HTTP requests, telemetry destinations or automatic uploads in this feature. Local read results support analysis/fingerprints and local report text; masked feature records go only to the plugin store under the current cwd/session identity. No project build, startup, settings or instruction files are edited. User/agent tool calls that are forwarded retain their independent behavior and destinations.
+
+For review: `String.raw`/regular-expression literals in the redactor are string-pattern data, never a shell program. Template literals beginning `#` format record numbers. `constructor` names ordinary TypeScript class initialization. These are not credential reads or command execution. Runtime command access is limited to the concrete cases documented above.

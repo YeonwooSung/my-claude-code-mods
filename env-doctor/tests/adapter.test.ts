@@ -26,3 +26,20 @@ test('failed durable write returns visible error', async ($, on) => {
   on('store.get', () => ({ value: undefined })); on('store.set', () => ({ deny: 'disk full' }))
   expect((await $.command.run({ command: 'env-doctor', args: 'reset' } as never)).text).toContain('not saved')
 })
+
+test('presence checks use only the bundled helper and fixed version commands', async ($, on) => {
+  on('session.cwd', () => ({ value: '/repo' })); on('session.id', () => ({ value: 'presence' }))
+  on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
+  on('fs.read', () => ({ value: '{}' }))
+  const seen: string[][] = []
+  on('process.run', (_$, e) => {
+    seen.push([...e.argv])
+    return { value: { exitCode: 0, stdout: e.argv.includes('--version') ? '22.0.0' : 'set', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  const answer = await $.command.run({ command: 'env-doctor', args: 'require PROBE_VALUE' } as never)
+  expect(answer.text).toContain('PROBE_VALUE: SET')
+  expect(seen[0]).toEqual(['node', '--version'])
+  expect(seen[1]?.slice(0, 2)).toEqual(['node', '--'])
+  expect(seen[1]?.[2]).toMatch(/\/env-doctor\/hooks\/env-presence\.mjs$/)
+  expect(seen[1]?.[3]).toBe('PROBE_VALUE')
+})
