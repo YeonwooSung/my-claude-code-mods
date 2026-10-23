@@ -89,3 +89,7 @@ cp -R agent-profiler/.claude-plugin/types context-inspector/.claude-plugin/types
 npx -y -p typescript@5 tsc -p context-inspector --noEmit
 "$CLAUDE292" plugin validate context-inspector
 ```
+
+## File-write scope and data flow
+
+`/context-export` writes context-ledger JSONL data with `$.fs.write` to `<outputDir>/<sessionId>/context-<loadId>-<n>.jsonl`. The default `outputDir` is `~/.claude/context-inspector`; it can be changed in plugin settings, and `HOME` is read only to expand a leading `~`. The session ID, load timestamp and chunk number determine the remaining path. The files contain the ledger's context accounting, summaries and export metadata, not executable instructions. This mod does not intentionally edit project build scripts, startup files, settings or instruction files; its variable write paths are for these generated data exports only. It does not upload these files or contact a network host.
