@@ -1,4 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
+import './game.tsx'
 import { decodeGame, score, type Game } from './core/game.ts'
 import { RequestState, Scores, validScore } from './core/state.ts'
 
@@ -103,13 +104,13 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     const existing = await next(e)
     if (e.requestId !== PANE || !state.open || (e.surface !== 'terminal' && e.surface !== 'desktop')) return existing
-    const { Box, Client } = $.ui.resolve(e)
+    const elements = $.ui.resolve(e)
     const record = records($, state).snapshot()
     const request = state.requests.snapshot()
     const columns = Number.isFinite(e.props.bodyColumns) ? Math.max(0, Math.min(80, Math.floor(e.props.bodyColumns))) : 0
     const rows = Number.isFinite(e.props.scroll.bodyRows) ? Math.max(0, Math.min(8, Math.floor(e.props.scroll.bodyRows))) : 0
-    return <Box flexDirection="column">{existing}<Client key="runner" module="./game.tsx"
+    return <elements.Box flexDirection="column">{existing}<elements.Client key="runner" module="./game.tsx"
       width={Math.max(1, columns)} height={Math.max(1, rows)}
-      props={{ runId: state.runId, columns, rows, checkpoint: state.game ?? null, best: record.best, error: record.error ?? '', status: request.status, recovered: request.recovered }} /></Box>
+      props={{ runId: state.runId, columns, rows, checkpoint: state.game ?? null, best: record.best, error: record.error ?? '', status: request.status, recovered: request.recovered }} /></elements.Box>
   })
 }
