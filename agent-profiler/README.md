@@ -27,7 +27,7 @@ turn (turn.start -> turn.complete)                                   observed
 +- tool (tool.call: entry -> next return)                            observed
 |   +- exec = duration_ms                                            measured
 |   +- wait = wall - exec                                            inferred
-|        approval wait if tool.check said 'ask', otherwise tool.overhead
+|        tool.overhead (permission verdicts are not inspected)
 +- subagent (classic.SubagentStart -> classic.SubagentStop)          observed
 |   +- (recursive) model.request / tool
 +- engine.overhead = turn - (model.request U tool U blocking subagent)   inferred
@@ -94,11 +94,11 @@ Per span: name, start/end time, parent, status, and these attributes.
 - Resource: `service.name=claude-code`, `session.id`, `agent_profiler.version`.
 - Turn: `agent_profiler.turn.reason`; `agent_profiler.turn.prompt` (first 120 characters) only with `exportCommandText`.
 - Model request (`chat <model>`): `gen_ai.request.model`, `gen_ai.response.model`, input/output token counts, cache read/creation tokens, finish reason, effort, `agent_profiler.ttft_ms`; child spans `model.ttft`, `model.thinking_stream`, `model.output_stream`.
-- Tool (`execute_tool <tool>`): tool name and call id, `agent_profiler.exec_ms`, `wait_ms`, `fs.path` and `fs.range` (file tools), `search.pattern` (Glob/Grep, redacted and only with `exportCommandText`), `bash.category`, launched agent id; `agent_profiler.bash.command` only with `exportCommandText`; child spans `tool.exec` and `tool.approval_wait` / `tool.overhead`.
+- Tool (`execute_tool <tool>`): tool name and call id, `agent_profiler.exec_ms`, `wait_ms`, `fs.path` and `fs.range` (file tools), `search.pattern` (Glob/Grep, redacted and only with `exportCommandText`), `bash.category`, launched agent id; `agent_profiler.bash.command` only with `exportCommandText`; child spans `tool.exec` and `tool.overhead`.
 - Subagent (`invoke_agent <type>`): agent id and type, whether it ran async.
 - Every span: `agent_profiler.category`, `agent_profiler.observability`, `agent_profiler.incomplete` when still open.
 
-With `exportCommandText` on, prompts and commands are redacted first: `Authorization: ...` header values, `Bearer <token>`, `--password <x>` / `--password=<x>`, `mysql ... -p<password>`, and `NAME=value` where `NAME` contains KEY, TOKEN, SECRET or PASSWORD. This catches common shapes only, so leave the setting off when traces leave your machine and commands may carry secrets. File paths and search patterns are always exported.
+With `exportCommandText` on, prompts and commands are redacted first: `Authorization: ...` header values, `Bearer <token>`, `--password <x>` / `--password=<x>`, `mysql ... -p<password>`, and `NAME=value` where `NAME` contains KEY, TOKEN, SECRET or PASSWORD. This catches common shapes only, so leave the setting off when traces leave your machine and commands may carry secrets. File paths are always exported; search patterns require `exportCommandText`.
 
 ## Jaeger / Tempo
 
@@ -174,3 +174,13 @@ Secret masking is best-effort and covers credential flags, sensitive headers, UR
 ## Permissions
 
 Agent Profiler does not register a `tool.check` hook or inspect permission verdicts. Tool calls proceed through the host's normal permission checks. Approval decisions are no longer recorded; the interval before execution is reported as tool overhead rather than a confirmed approval wait. Denied tool outcomes can still be observed through `tool.call`.
+
+## Network, observed calls and file writes
+
+The `tool.call` hook observes tool names, summarized inputs, outcomes and timing, including calls that may themselves access the network. It forwards each original call once. The `turn.step` hook observes model/effort, chunk kinds and usage while forwarding conversation chunks. The `command.run` hooks answer only `/profile`, `/profile-pane` and `/profile-export`; they report, open the local pane or export recorded data. They do not run shell commands or execute instructions from an HTTP response.
+
+The only direct network call is `$.http.fetch`: an HTTP POST of OTLP trace JSON to `<otlpEndpoint>/v1/traces`. There are no default external hosts: an empty endpoint disables HTTP. The destination host is the host of the user-configured `otlpEndpoint` (for example `localhost` on port 4318 for Jaeger/Tempo, or the user's Collector host). This host cannot be a compile-time constant because the collector is configurable. Responses are checked for success/status only, never evaluated as commands. No custom redirect option is supplied; HTTP redirects follow the host engine's fetch policy, so configure a collector you trust.
+
+POST bodies contain the same trace JSON written locally: session and span IDs, timing, model/token metadata, tool names, paths/ranges, summaries and subagent metadata listed above. Turn prompt prefixes, Bash command text and search patterns are included only when `exportCommandText` is enabled, after best-effort masking. Full model response text is not exported. `$.env.get('HOME')` is used only to expand a leading `~` in `outputDir`; the environment value is not added to the POST body as a separate field. Paths in tool metadata may themselves contain home-directory names.
+
+`$.fs.write` writes only generated `.otlp.json` trace files under `<outputDir>/<sessionId>/` with the exact naming patterns in “Trace files”. The default base is `~/.claude/agent-profiler`; `outputDir` is user configurable. These are data exports, not build, startup, settings or instruction files. This mod does not intentionally edit those files.
