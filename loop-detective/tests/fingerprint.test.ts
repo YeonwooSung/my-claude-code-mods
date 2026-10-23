@@ -64,12 +64,12 @@ test('real framework summary runtimes do not split otherwise identical failures'
 })
 
 test('redaction happens before truncation and display strips terminal controls', () => {
-  const text = 'API_KEY=secret123 TOKEN="secret spaced" --password=secret456 Authorization: Bearer secret789\npassword: secret000'
+  const text = 'API_KEY=YOUR_API_KEY TOKEN="YOUR_TOKEN EXAMPLE" --password=YOUR_PASSWORD Authorization: Bearer YOUR_TOKEN\npassword: YOUR_PASSWORD_EXAMPLE'
   const out = display(text, 1000)
-  for (const secret of ['secret123', 'secret spaced', 'secret456', 'secret789', 'secret000']) expect(out).not.toContain(secret)
-  expect(display('TOKEN=longsecretvalue', 12)).not.toContain('longsecret')
+  for (const secret of ['YOUR_API_KEY', 'YOUR_TOKEN EXAMPLE', 'YOUR_PASSWORD', 'YOUR_TOKEN', 'YOUR_PASSWORD_EXAMPLE']) expect(out).not.toContain(secret)
+  expect(display('TOKEN=YOUR_LONG_TOKEN_EXAMPLE', 12)).not.toContain('YOUR_LONG')
   expect(display('\u001b]0;evil\u0007\u001b[2Jhello\r\nworld\u0000')).toBe('hello world')
   expect(display('x'.repeat(1000), 20).length).toBeLessThanOrEqual(20)
-  const result = classifyResult({ isError: true, text: 'Error: TOKEN=secret123' })
-  expect(result.excerpt).not.toContain('secret123')
+  const result = classifyResult({ isError: true, text: 'Error: TOKEN=YOUR_API_KEY' })
+  expect(result.excerpt).not.toContain('YOUR_API_KEY')
 })
