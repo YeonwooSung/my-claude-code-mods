@@ -12,8 +12,8 @@ export function fnv1a64(text: string): string {
 }
 
 // OTLP rejects an all-zero span id.
-export function spanId(kind: string, key: string): string {
-  const id = fnv1a64(`${kind}:${key}`)
+export function spanId(kind: string, recordId: string): string {
+  const id = fnv1a64(`${kind}:${recordId}`)
   return id === '0000000000000000' ? '0000000000000001' : id
 }
 

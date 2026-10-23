@@ -1,6 +1,6 @@
 {
   "name": "agent-profiler",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Execution profiler for Claude Code: model wait vs tools vs subagents, live, with OTLP export",
   "author": { "name": "YeonwooSung" },
   "userConfig": {

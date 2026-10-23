@@ -52,8 +52,9 @@ def run_case(binary, profiler, workspace, case, expected_version):
     sample = case_root / 'sample.txt'
     if case == 'automatic':
         sample.write_text('local permission probe\n')
-    env = {key: value for key, value in os.environ.items()
-           if not key.startswith(('ANTHROPIC_', 'CLAUDE', 'OTEL_', 'BETA_', 'ENABLE_BETA_'))}
+    # Preserve only named OS metadata, never iterate or forward installer credentials.
+    env = {'PATH': os.getenv('PATH', os.defpath), 'HOME': os.path.expanduser('~'),
+           'LANG': os.getenv('LANG', 'en_US.UTF-8')}
     env.update(
         CLAUDE_CONFIG_DIR=str(config), ANTHROPIC_API_KEY='YOUR_API_KEY',
         ANTHROPIC_BASE_URL='http://127.0.0.1:1', DISABLE_AUTOUPDATER='1',
