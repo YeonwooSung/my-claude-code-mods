@@ -1,6 +1,6 @@
 {
   "name": "time-machine",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Agent Time Machine: a branching timeline of tool calls with shadow-git snapshots — inspect, diff, explain test failures, restore, branch, compare, re-run",
   "author": { "name": "YeonwooSung" },
   "userConfig": {

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { contentHash } from '../hooks/core/hash.ts'
-import { ChunkWriter, DurableWriter, chunkName, parseChunks, projectKey } from '../hooks/core/store.ts'
+import { ChunkWriter, DurableWriter, chunkName, parseChunks, projectKey, storeIsInsidePlugin } from '../hooks/core/store.ts'
 
 test('failed chunks survive rollover and retry in order without duplicate records', async () => {
   const writer = new DurableWriter(new ChunkWriter('retry', 70))
@@ -83,4 +83,13 @@ test('parseChunks reads chunks in name order and skips garbage', () => {
   ])
   expect(recs.map(r => r.type)).toEqual(['turn', 'turn', 'branch'])
   expect(recs.map(r => ('n' in r ? r.n : 'name' in r ? r.name : ''))).toEqual([1, 2, 'x'])
+})
+
+test('recording destinations cannot resolve into the installed plugin directory', () => {
+  expect(storeIsInsidePlugin('/mods/time-machine/data', '/mods/time-machine', '/repo')).toBe(true)
+  expect(storeIsInsidePlugin('/mods/x/../time-machine/data', '/mods/time-machine', '/repo')).toBe(true)
+  expect(storeIsInsidePlugin('recordings', '/mods/time-machine', '/mods/time-machine')).toBe(true)
+  expect(storeIsInsidePlugin('/mods/time-machine', '/mods/time-machine', '/repo')).toBe(true)
+  expect(storeIsInsidePlugin('/mods/time-machine-backup', '/mods/time-machine', '/repo')).toBe(false)
+  expect(storeIsInsidePlugin('/data/recordings', '/mods/time-machine', '/repo')).toBe(false)
 })

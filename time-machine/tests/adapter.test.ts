@@ -67,12 +67,12 @@ test('rerun displays are masked but the replayed tool receives the original comm
 })
 
 // The runner's `$` has no `process`, so git is unavailable here: these tests run the "snapshots off" path.
-function world(on: On, writes: Map<string, string>, toolAnswer?: (e: { tool: string; tool_use_id?: string }) => unknown, denyWrites?: () => boolean): void {
+function world(on: On, writes: Map<string, string>, toolAnswer?: (e: { tool: string; tool_use_id?: string }) => unknown, denyWrites?: () => boolean, pluginCwd = false): void {
   mock.env(on, { HOME: '/Users/u' })
   mock.store(on)
   on('session.id', () => ({ value: 'sess-1' }))
   on('session.root', () => ({ value: '/r' }))
-  on('session.cwd', () => ({ value: '/r' }))
+  on('session.cwd', () => ({ value: pluginCwd ? new URL('../', (import.meta as ImportMeta & { url: string }).url).pathname : '/r' }))
   on('fs.list', () => ({ value: [] }))
   on('fs.write', (_$, e) => {
     if (denyWrites?.()) return { deny: 'ENOSPC' }
@@ -333,4 +333,16 @@ test('/tm compare refuses a session id that is not one folder name', async ($, o
     expect(text).toContain('is not a session id')
   }
   expect(String((await $.command.run({ command: 'tm', args: 'compare main session:other-1' } as never)).text)).toBe('time-machine: no recorded session other-1')
+})
+
+test('a recording directory inside the plugin keeps data in memory and never writes files', { options: { storeDir: '.' } }, async ($, on) => {
+  const writes = new Map<string, string>()
+  world(on, writes, undefined, undefined, true)
+  on('ui.toast', () => ({ value: undefined }))
+  await $.session.start({ cwd: '/r', surface: null, isInteractive: false } as never)
+  await $.tool.call({ tool: 'Read', file_path: '/r/a', tool_use_id: 'a' } as never)
+  const report = String((await $.command.run({ command: 'tm', args: '' } as never)).text)
+  expect(report).toContain('storeDir must be outside the plugin directory')
+  expect(report).toContain('not persisted')
+  expect(writes.size).toBe(0)
 })

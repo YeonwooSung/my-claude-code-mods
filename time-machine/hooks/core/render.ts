@@ -1,6 +1,7 @@
 import type { Why } from './causality.ts'
 import { keyOf, type Compared, type OutputComparison } from './compare.ts'
 import { redactSecrets } from './redact.ts'
+import type { RecordingStatus } from './store.ts'
 import type { Recorder } from './timeline.ts'
 import type { FileChange, Step, TestRun } from './types.ts'
 
@@ -61,7 +62,7 @@ export function avg(xs: readonly number[]): number | undefined {
   return xs.length > 0 ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : undefined
 }
 
-export type TimelineOptions = { all?: boolean; branch?: string; limit?: number; off?: string; snapMs?: readonly number[]; recording?: import('./store.ts').RecordingStatus }
+export type TimelineOptions = { all?: boolean; branch?: string; limit?: number; off?: string; snapMs?: readonly number[]; recording?: RecordingStatus }
 
 export function renderTimeline(rec: Recorder, o: TimelineOptions = {}): string {
   const branch = o.branch ?? rec.branch
@@ -215,7 +216,7 @@ export function renderSessions(rows: readonly { id: string; startedAt: number; c
   return ['Recorded sessions (newest first):', ...sorted.map(r => `  ${r.id}${r.current ? ' (this session)' : ''} · started ${started(r.startedAt)}`)].join('\n')
 }
 
-export function statusLine(rec: Recorder, snapMs: readonly number[], off?: string, recording?: import('./store.ts').RecordingStatus): string {
+export function statusLine(rec: Recorder, snapMs: readonly number[], off?: string, recording?: RecordingStatus): string {
   const steps = rec.all().filter(s => s.kind !== 'baseline')
   const last = steps.at(-1)?.n ?? 0
   const storage = recording ? ` · ${recording.state}` : ''

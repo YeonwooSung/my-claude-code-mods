@@ -12,6 +12,22 @@ export function projectKey(root: string): string {
   return `${last.replace(/[^\w.-]/g, '_')}-${hash32(trimmed).toString(16).padStart(8, '0')}`
 }
 
+// Paths are normalized lexically before comparing directory boundaries, including relative settings.
+export function storeIsInsidePlugin(directory: string, pluginRoot: string, cwd: string): boolean {
+  const normalize = (path: string): string => {
+    const parts: string[] = []
+    for (const part of path.split('/')) {
+      if (!part || part === '.') continue
+      if (part === '..') parts.pop()
+      else parts.push(part)
+    }
+    return '/' + parts.join('/')
+  }
+  const destination = normalize(directory.startsWith('/') ? directory : `${cwd}/${directory}`)
+  const plugin = normalize(pluginRoot)
+  return destination === plugin || destination.startsWith(plugin + '/')
+}
+
 export function chunkName(loadId: string, index: number): string {
   return `${loadId}-${String(index).padStart(4, '0')}.jsonl`
 }

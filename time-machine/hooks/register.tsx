@@ -17,7 +17,7 @@ import {
   renderWhy,
   statusLine,
 } from './core/render.ts'
-import { ChunkWriter, DurableWriter, parseChunks, projectKey, type RecordingStatus } from './core/store.ts'
+import { ChunkWriter, DurableWriter, parseChunks, projectKey, storeIsInsidePlugin, type RecordingStatus } from './core/store.ts'
 import { redactSecrets } from './core/redact.ts'
 import { parseTestOutput } from './core/testparse.ts'
 import { branchTaken, Recorder } from './core/timeline.ts'
@@ -52,6 +52,7 @@ type Ctx = {
   head?: string
   writer: DurableWriter
   warnedStore?: boolean
+  writeError?: string
   inflight: number
   snapMs: number[]
   failing?: { count: number; since: number; error: string }
@@ -89,6 +90,7 @@ async function storeDir($: EngineInterface, options: PluginOptions): Promise<str
 
 // Records written in order: every chunk a batch touched gets its final body.
 async function persistOne($: EngineInterface, c: Ctx): Promise<void> {
+  if (c.writeError) { c.rec.drain(); return } // invalid destination: memory only, never touch plugin files
   c.writer.add(c.rec.drain())
   await c.writer.flush(async (name, body) => { await $.fs.write(`${c.dir}/${name}`, body) })
   const status = c.writer.status
@@ -111,7 +113,7 @@ async function persist($: EngineInterface, c: Ctx): Promise<void> {
 }
 
 function recordingStatus(c: Ctx): RecordingStatus {
-  const own = c.writer.status
+  const own: RecordingStatus = c.writeError ? { state: 'not persisted', pending: 0, error: c.writeError } : c.writer.status
   const pending = [...retired].filter(previous => previous !== c).reduce((sum, previous) => sum + previous.writer.status.pending, 0)
   return pending > 0 ? { state: own.state === 'not persisted' ? own.state : 'degraded', pending: own.pending + pending, error: 'earlier session records await retry' } : own
 }
@@ -150,10 +152,12 @@ async function startSession($: EngineInterface): Promise<Ctx> {
   const root = await $.session.root()
   const base = `${await storeDir($, currentOptions)}/${projectKey(root)}`
   const dir = `${base}/sessions/${sessionId}`
+  const writeError = storeIsInsidePlugin(base, $.plugin.root, await $.session.cwd())
+    ? 'storeDir must be outside the plugin directory; recording is memory-only' : undefined
   // Disk may be missing the newest steps after a failed flush. Resume that in-memory history
   // before allocating step numbers, or a reload would collapse old/new steps with the same n.
   const remembered = [...retired].reverse().find(previous => previous.dir === dir && previous.root === root)
-  const rec = remembered?.rec ?? (await loadRecorder($, dir)) ?? new Recorder({ sessionId, root, startedAt: Date.now(), loadId: LOAD_ID })
+  const rec = remembered?.rec ?? (writeError ? undefined : await loadRecorder($, dir)) ?? new Recorder({ sessionId, root, startedAt: Date.now(), loadId: LOAD_ID })
   starts += 1
   // Four digits: chunk names sort in start order through 9999 starts in one module load.
   const c: Ctx = {
@@ -161,6 +165,7 @@ async function startSession($: EngineInterface): Promise<Ctx> {
     root,
     base,
     dir,
+    ...(writeError ? { writeError, off: writeError } : {}),
     writer: new DurableWriter(new ChunkWriter(`${LOAD_ID}${String(starts).padStart(4, '0')}`)),
     inflight: 0,
     snapMs: [],
@@ -169,7 +174,7 @@ async function startSession($: EngineInterface): Promise<Ctx> {
   }
   const last = rec.lastSnapshot()
   if (last?.snapshot) c.head = last.snapshot.commit
-  c.writer.queueFile('meta.json', JSON.stringify({ sessionId, root, startedAt: rec.session.startedAt }))
+  if (!writeError) c.writer.queueFile('meta.json', JSON.stringify({ sessionId, root, startedAt: rec.session.startedAt }))
   await persist($, c)
   return c
 }
