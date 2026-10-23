@@ -21,5 +21,5 @@
 ## Tasks
 
 1. [x] Add failing core/report/export and real-adapter tests for permission observations and missing coverage. Implement bounded metadata parsing and shared timing; register collector observer. Verify focused suites and commit.
-2. [ ] Add a reproducible isolated host smoke test with telemetry export disabled: automatic Read, explicitly approved Write, rejected Write. Assert ID correlation, reports and exported attributes; validate and commit.
+2. [x] Add a reproducible isolated host smoke test with telemetry export disabled: automatic Read, explicitly approved Write, rejected Write. Assert ID correlation, reports and exported attributes; validate and commit.
 3. [ ] Bump profiler runtime/manifest version to 0.1.6, document semantics and limits, record verification. Run full core/adapters/type/privacy/workflow checks, review, and commit.
