@@ -93,3 +93,9 @@ npx -y -p typescript@5 tsc -p context-inspector --noEmit
 ## File-write scope and data flow
 
 `/context-export` writes context-ledger JSONL data with `$.fs.write` to `<outputDir>/<sessionId>/context-<loadId>-<n>.jsonl`. The default `outputDir` is `~/.claude/context-inspector`; it can be changed in plugin settings, and `HOME` is read only to expand a leading `~`. The session ID, load timestamp and chunk number determine the remaining path. The files contain the ledger's context accounting, summaries and export metadata, not executable instructions. This mod does not intentionally edit project build scripts, startup files, settings or instruction files; its variable write paths are for these generated data exports only. It does not upload these files or contact a network host.
+
+## Hook and source-review details
+
+`session.append` ingests accounting metadata from the incoming conversation row and passes the event through unchanged. `tool.call` records the tool's input/result metadata and returns the original result. `turn.step` observes token usage while forwarding chunks. `session.compact` records compaction accounting and returns the downstream result unchanged. Lifecycle hooks reset only this mod's in-memory ledger on session boundaries or repaint its own UI. None changes conversation text, settings, instructions, permission rules or other tools' inputs/results.
+
+`command.run` answers only `/context-inspect` (report), `/context-pane` (open this pane), and `/context-export` (the JSONL data files described above). These hooks do not themselves run other slash commands. `ui.render` draws this mod's pane. `Ledger.size` is a pure read of the in-memory item count with no I/O; its constructor initializes normal state. Generic keys/constructors in these sources are not credential access or dynamically evaluated code. The only environment lookup expands HOME in the export directory; no credential or network destination is needed.
