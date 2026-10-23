@@ -70,3 +70,9 @@ python3 -m venv /tmp/token-run-qa
 ```
 
 Solo runs on 2.1.296/2.1.301 and a combined run on 2.1.301 passed 19 checkpoints each. Artifacts include ANSI output, decoded screen snapshots and result.json. Native Desktop GUI rendering has not been checked; Desktop coverage is engine render-tree coverage. See the [verification report](../docs/verification/2026-10-17-token-run.md) for evidence and limits.
+
+## Data flow and Client loading
+
+The render hook calls the resolved `Client` element with the fixed local module path `./game.tsx` in an inline options object. This is the same engine element API as JSX; it loads only the bundled `hooks/game.tsx`. The Client receives game state, score and request-status flags, and posts score/checkpoint/exit messages back to this plugin through the local UI message channel. It receives no prompt or response text. Best scores go only to the plugin's local store; this mod has no network destinations or process execution.
+
+In `tests/adapter.test.ts`, the `command($, args)` helper calls `$.command.run` for the fixed `token-run` command inside the engine test harness. It exercises local game/help/close behavior, not a shell or external service. Test store reads use an in-memory Map or test callbacks; their values are used for assertions and the local game UI, not sent externally. The `turn.step` hook observes chunk kinds to update recovery status and forwards chunks and the final response unchanged.
