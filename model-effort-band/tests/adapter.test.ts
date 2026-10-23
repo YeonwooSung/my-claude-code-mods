@@ -168,7 +168,7 @@ test('ending the session clears the retained effort before a missing-effort requ
   expect(JSON.stringify(await $.ui.render(renderInput()))).toContain('unknown')
 })
 
-test('settings commands reset observation after passing through their result', async ($, on) => {
+test('settings commands clear observation and preserve downstream output', async ($, on) => {
   setup(on)
   stream(on)
   on('command.run', () => ({ text: 'settings result' }))
@@ -180,18 +180,78 @@ test('settings commands reset observation after passing through their result', a
   }
 })
 
-test('denied settings preserve effort while successful changes reset it', async ($, on) => {
+test('settings commands clear before execution and retain effort observed while a picker runs', async ($, on) => {
+  setup(on)
+  stream(on)
+  let during = ''
+  on('command.run', async () => {
+    during = JSON.stringify(await $.ui.render(renderInput()))
+    for await (const _ of $.turn.step({ turnId: 't1', index: 1, model: 'claude-opus-4-6', effort: 'low', messageCount: 1 })) {}
+    return { text: 'picker closed' }
+  })
+  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-4-6', effort: 'high', messageCount: 1 })) {}
+  expect(await $.command.run({ command: 'effort', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })).toEqual({ text: 'picker closed' })
+  expect(during).toContain('unknown')
+  expect(during).not.toContain('깊게')
+  expect(JSON.stringify(await $.ui.render(renderInput()))).toContain('빠르게')
+})
+
+test('settings clear effort before the downstream writer runs', async ($, on) => {
+  setup(on)
+  stream(on)
+  let during = ''
+  on('config.set', async () => {
+    during = JSON.stringify(await $.ui.render(renderInput()))
+    return { value: true }
+  })
+  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-4-6', effort: 'high', messageCount: 1 })) {}
+  expect(await $.config.set({ key: 'verbose', value: true, previous: false, provider: { plugin: 'engine', tier: 'core' }, origin: { kind: 'composer' } })).toEqual({ value: true })
+  expect(during).toContain('unknown')
+  expect(during).not.toContain('깊게')
+})
+
+test('settings attempts clear observation while preserving denial and success results', async ($, on) => {
   setup(on)
   stream(on)
   let denied = true
-  on('config.set', () => denied ? { deny: 'locked' } : { value: true })
+  let calls = 0
+  on('config.set', () => { calls++; return denied ? { deny: 'locked' } : { value: true } })
   for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-4-6', effort: 'high', messageCount: 1 })) {}
   expect(await $.config.set({ key: 'verbose', value: true, previous: false, provider: { plugin: 'engine', tier: 'core' }, origin: { kind: 'composer' } })).toEqual({ deny: 'locked' })
-  expect(JSON.stringify(await $.ui.render(renderInput()))).toContain('깊게')
+  expect(JSON.stringify(await $.ui.render(renderInput()))).toContain('unknown')
+  for await (const _ of $.turn.step({ turnId: 't1', index: 1, model: 'claude-opus-4-6', effort: 'high', messageCount: 1 })) {}
+  expect(calls).toBe(1)
   denied = false
   expect(await $.config.set({ key: 'verbose', value: true, previous: false, provider: { plugin: 'engine', tier: 'core' }, origin: { kind: 'composer' } })).toEqual({ value: true })
+  expect(calls).toBe(2)
   expect(JSON.stringify(await $.ui.render(renderInput()))).toContain('unknown')
 })
+
+for (const event of ['config.set', 'command.run'] as const) {
+  test(`${event} failure clears effort and never repeats downstream execution`, async ($, on) => {
+    setup(on)
+    stream(on)
+    on('ui.invalidate', () => { throw new Error('no redraw') })
+    let calls = 0
+    if (event === 'config.set') {
+      on('config.set', () => { calls++; throw new Error('writer failed') })
+    } else {
+      on('command.run', () => { calls++; throw new Error('picker failed') })
+    }
+    for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-4-6', effort: 'high', messageCount: 1 })) {}
+    let error = ''
+    try {
+      if (event === 'config.set') {
+        await $.config.set({ key: 'verbose', value: true, previous: false, provider: { plugin: 'engine', tier: 'core' }, origin: { kind: 'composer' } })
+      } else {
+        await $.command.run({ command: 'effort', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+      }
+    } catch (failure) { error = String(failure) }
+    expect(error).toContain(`no implementation for ${event}`)
+    expect(calls).toBe(1)
+    expect(JSON.stringify(await $.ui.render(renderInput()))).toContain('unknown')
+  })
+}
 
 test('reload and picker model switches clear effort even when the selected model returns', async ($, on) => {
   setup(on)

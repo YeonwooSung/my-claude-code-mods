@@ -28,14 +28,13 @@ export const register: Register = on => {
     return next(e)
   })
   on('config.set', async ($, e, next) => {
-    const result = await next(e)
-    if (result.deny === undefined) { state.reset(); repaint($) }
-    return result
+    // Clear conservatively on an attempt: direct delegation cannot inspect a later deny.
+    state.reset(); repaint($)
+    return next(e)
   })
   on('command.run', { command: /^(model|effort|config)$/ }, async ($, e, next) => {
-    const result = await next(e)
     state.reset(); repaint($)
-    return result
+    return next(e)
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
