@@ -83,3 +83,9 @@ npm run typecheck
 ```
 
 The root Node suite runs pure core tests without an account or engine. Adapter tests run through the real engine's testing kit and verify passthrough, reset, edit/retry, reports, notifications and UI fault isolation. Typechecking requires engine-generated declarations in `loop-detective/.claude-plugin/types/claude-code/index.d.ts`, as for the other mods; use declarations for the engine being targeted. Core classes contain no engine dependency.
+
+## Hook and source-review details
+
+The `tool.call` hook reserves a detection record, forwards the original call once, and analyzes the unchanged result. It never repeats, replaces or blocks the tool. `turn.complete` repaints, and lifecycle hooks register this mod's commands or reset only its own detector on clear/resume. `command.run` answers only `/loop-report` (local report), `/loop-reset` (detector records only), and `/loop-pane` (open this pane); it does not call those commands itself. `ui.render` draws the mod's own pane.
+
+The credential-review finding in `tests/adapter.test.ts` referred to a boolean selecting success/failure fixture results (now named `checksPass`), not a password. The `agent:${...}` string in the detector is an in-memory grouping identifier, not shell syntax sent to an interpreter. Constructors initialize ordinary detection state. These files read no installer credentials and have no direct program execution, HTTP upload or remote host. Test tool calls go to mocked handlers and fixtures, not a server.

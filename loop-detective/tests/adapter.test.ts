@@ -57,15 +57,15 @@ test('delayed cwd metadata cannot reorder invocations', async ($, on) => {
 
 test('successful edits make an edit-retry case; success closes it', async ($, on) => {
   environment(on)
-  let pass = false
-  on('tool.call', (_$, e) => e.tool === 'Bash' ? pass ? ok : fail : { result: {} })
+  let checksPass = false
+  on('tool.call', (_$, e) => e.tool === 'Bash' ? checksPass ? ok : fail : { result: {} })
   await $.command.run({ command: 'loop-reset', args: '' } as never)
   for (let i = 0; i < 3; i++) {
     if (i) await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts', old_string: 'a', new_string: 'b', tool_use_id: `e${i}` } as never)
     await $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: `t${i}` })
   }
   expect((await $.command.run({ command: 'loop-report', args: '' } as never)).text).toContain('edit-retry')
-  pass = true
+  checksPass = true
   await $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: 'pass' })
   expect((await $.command.run({ command: 'loop-report', args: '--history' } as never)).text).toContain('recovered')
 })
