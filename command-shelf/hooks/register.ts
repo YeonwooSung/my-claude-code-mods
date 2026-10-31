@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { object, revision, safeText, safeData, reportText, type Observation, type Port } from './core/runtime.ts'
+import { hash, object, revision, safeText, safeData, reportText, type Observation, type Port } from './core/runtime.ts'
 export interface Model { data: object; command(args: string, io: Port): Promise<string>; observe?(event: Observation, io: Port): Promise<void> }
 import { Feature } from './core/feature.ts'
 const name = 'command-shelf'
@@ -25,8 +25,12 @@ const identity = ($: EngineInterface) => Promise.all([$.session.cwd(), $.session
 const transact = async ($: EngineInterface, fn: (model: Model, io: Port) => Promise<string | void>, expected: string[], forceSave = false): Promise<string> => serial(async () => {
   const [io, id] = await Promise.all([port($), $.session.id()])
   if (io.cwd !== expected[0] || id !== expected[1]) return 'Session changed; operation not applied'
-  const key = `${name}:v1:${JSON.stringify([io.cwd, id])}`
-  const raw = await $.store.get(key)
+  const session = JSON.stringify([io.cwd, id])
+  const key = `${name}:v1:${hash(session)}`
+  let raw = await $.store.get(key)
+  // Legacy keys can exceed the host limit; only readable keys may be queried.
+  const legacyKey = `${name}:v1:${session}`
+  if (raw === undefined && legacyKey.length <= 256) raw = await $.store.get(legacyKey)
   const loaded = await identity($)
   if (loaded[0] !== expected[0] || loaded[1] !== expected[1]) return 'Session changed; operation not applied'
   const model = new Feature(raw)

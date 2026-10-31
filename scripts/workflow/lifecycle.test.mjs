@@ -10,6 +10,7 @@ import { register as doctor } from '../../env-doctor/hooks/register.ts'
 import { register as deps } from '../../dependency-lens/hooks/register.ts'
 import { register as assume } from '../../assumption-tracker/hooks/register.ts'
 import { register as review } from '../../review-queue/hooks/register.ts'
+import { hash } from '../../handoff-pack/hooks/core/runtime.ts'
 
 const modules = [['verify-board', verify], ['scope-guard', scope], ['blast-radius', blast], ['decision-ledger', decision], ['handoff-pack', handoff], ['command-shelf', shelf], ['env-doctor', doctor], ['dependency-lens', deps], ['assumption-tracker', assume], ['review-queue', review]]
 const success = () => ({ result: { stdout: '', stderr: '', interrupted: false } })
@@ -18,10 +19,11 @@ function deferred() { let resolve; const promise = new Promise(r => { resolve = 
 // Only the host boundary is controlled. Each real adapter and Feature executes unchanged.
 // Structured clones mirror engine store message boundaries rather than sharing mutable objects.
 function host(selected = modules, underlying = async () => success()) {
-  const hooks = [], saved = new Map(), commands = new Map(), toasts = [], calls = []
+  const hooks = [], saved = new Map(), commands = new Map(), toasts = [], calls = [], reads = []
   const controls = { id: 'A', cwd: '/repo', status: '', failGet: false, failSet: false, failIdentity: false, beforeGet: undefined }
   const counts = { get: 0, set: 0 }
-  const key = (name, id = controls.id) => `${name}:v1:${JSON.stringify([controls.cwd, id])}`
+  const key = (name, id = controls.id) => `${name}:v1:${hash(JSON.stringify([controls.cwd, id]))}`
+  const checkKey = name => { if (name.length > 256) throw new Error(`the key is ${name.length} characters, over the 256 limit`) }
   const dispatch = async (event, input, origin = { plugin: 'engine', tier: 'core' }) => {
     const chain = hooks.filter(h => h.event === event && (!h.filter || Object.entries(h.filter).every(([key, value]) => input[key] === value)))
     const invoke = async (index, value) => {
@@ -38,8 +40,8 @@ function host(selected = modules, underlying = async () => success()) {
   const context = owner => ({
     session: { cwd: async () => { if (controls.failIdentity) throw new Error('identity unavailable'); return controls.cwd }, id: async () => { if (controls.failIdentity) throw new Error('identity unavailable'); return controls.id } },
     store: {
-      get: async name => { counts.get++; if (controls.beforeGet) await controls.beforeGet(name); if (controls.failGet) throw new Error('read unavailable'); return structuredClone(saved.get(name)) },
-      set: async (name, value) => { counts.set++; if (controls.failSet) throw new Error('disk full'); saved.set(name, structuredClone(value)) },
+      get: async name => { counts.get++; reads.push(name); checkKey(name); if (controls.beforeGet) await controls.beforeGet(name); if (controls.failGet) throw new Error('read unavailable'); return structuredClone(saved.get(name)) },
+      set: async (name, value) => { counts.set++; checkKey(name); if (controls.failSet) throw new Error('disk full'); saved.set(name, structuredClone(value)) },
     },
     command: { register: async spec => { if (commands.has(spec.name) && commands.get(spec.name) !== owner) throw new Error('command collision'); commands.set(spec.name, owner); return { command: spec.name } } },
     fs: { read: async (_path, options) => options?.as === 'bytes' ? { base64: '' } : '{}', list: async () => [], stat: async () => ({ kind: 'file', size: 0, mtimeMs: 0, isLink: false }) },
@@ -48,8 +50,113 @@ function host(selected = modules, underlying = async () => success()) {
     tool: { call: input => dispatch('tool.call', input, { plugin: owner, tier: 'append' }) },
   })
   for (const [owner, register] of selected) register((event, filter, handler) => hooks.push({ owner, event, filter: typeof filter === 'function' ? undefined : filter, handler: typeof filter === 'function' ? filter : handler }))
-  return { controls, counts, saved, calls, commands, toasts, key, command: (command, args = '') => dispatch('command.run', { command, args }), tool: input => dispatch('tool.call', input), start: () => dispatch('session.start', { cwd: controls.cwd, surface: 'terminal', isInteractive: true }) }
+  return { controls, counts, saved, calls, commands, toasts, reads, key, command: (command, args = '') => dispatch('command.run', { command, args }), tool: input => dispatch('tool.call', input), start: () => dispatch('session.start', { cwd: controls.cwd, surface: 'terminal', isInteractive: true }) }
 }
+
+const commandNames = ['verify', 'scope', 'blast', 'decision', 'handoff', 'shelf', 'env-doctor', 'deps', 'assume', 'review-queue']
+const sessionId = '12345678-1234-1234-1234-123456789012'
+const legacyKey = (name, cwd = '/repo', id = 'A') => `${name}:v1:${JSON.stringify([cwd, id])}`
+
+test('all ten adapters persist with bounded keys on long POSIX and escaped Windows paths', async t => {
+  for (const [index, mod] of modules.entries()) {
+    const [name] = mod, prefixLength = legacyKey(name, '', sessionId).length
+    const paths = ['/workspace/' + 'nested/'.repeat(50), 'C:\\' + 'nested\\'.repeat(26), '/' + 'x'.repeat(256 - prefixLength), '/' + 'x'.repeat(257 - prefixLength)]
+    for (const cwd of paths) await t.test(`${name}: escaped identity length ${legacyKey(name, cwd, sessionId).length}`, async () => {
+      const h = host([mod]); h.controls.cwd = cwd; h.controls.id = sessionId
+      assert.ok(legacyKey(name, cwd, sessionId).length > 256)
+      assert.match((await h.command(commandNames[index], 'reset')).text, /records reset/)
+      assert.equal(h.saved.size, 1)
+      const [storedKey] = h.saved.keys()
+      assert.ok(storedKey.length <= 256)
+      assert.doesNotMatch(storedKey, /nested|12345678-1234/)
+      const reads = h.reads.length
+      await h.command(commandNames[index], 'help')
+      assert.deepEqual(h.reads.slice(reads), [storedKey])
+    })
+  }
+})
+
+test('handoff preview and tool observations keep working on an escaped Windows path after reload', async () => {
+  const selected = [['handoff-pack', handoff]], h = host(selected)
+  h.controls.cwd = 'C:\\' + 'nested\\'.repeat(26); h.controls.id = sessionId
+  assert.match((await h.command('handoff', 'goal keep recording')).text, /keep recording/)
+  await h.tool({ tool: 'Bash', command: 'npm test' })
+  assert.deepEqual(h.toasts, []); assert.equal(h.calls.length, 1)
+  const reloaded = host(selected); Object.assign(reloaded.controls, h.controls)
+  for (const [key, value] of h.saved) reloaded.saved.set(key, structuredClone(value))
+  const report = (await reloaded.command('handoff', 'preview')).text
+  assert.match(report, /keep recording/); assert.match(report, /npm test/)
+})
+
+test('legacy fallback reads a 256-character key but never a 257-character key', async () => {
+  for (const length of [256, 257]) {
+    const h = host([['handoff-pack', handoff]])
+    h.controls.id = sessionId
+    h.controls.cwd = '/' + 'x'.repeat(length - legacyKey('handoff-pack', '/', sessionId).length)
+    const old = legacyKey('handoff-pack', h.controls.cwd, sessionId)
+    assert.equal(old.length, length)
+    if (length === 256) h.saved.set(old, { goal: 'legacy goal' })
+    h.controls.failSet = true
+    const report = (await h.command('handoff', 'preview')).text
+    assert.match(report, /# Handoff Pack/)
+    if (length === 256) { assert.match(report, /legacy goal/); assert.ok(h.reads.includes(old)) }
+    else assert.ok(!h.reads.includes(old))
+    assert.equal(h.counts.set, 0)
+  }
+})
+
+test('legacy notes survive mutation and hashed state takes precedence through reset', async () => {
+  const h = host([['handoff-pack', handoff]]), old = legacyKey('handoff-pack')
+  h.saved.set(old, { goal: 'legacy goal', notes: ['legacy note'] })
+  h.controls.failSet = true
+  assert.match((await h.command('handoff', 'preview')).text, /legacy note/)
+  assert.equal(h.counts.set, 0)
+  assert.match((await h.command('handoff', 'note new note')).text, /not saved/)
+  assert.equal(h.saved.size, 1)
+  h.controls.failSet = false
+  assert.match((await h.command('handoff', 'note new note')).text, /legacy note[\s\S]*new note/)
+  assert.equal(h.saved.size, 2)
+  assert.deepEqual(h.saved.get(old), { goal: 'legacy goal', notes: ['legacy note'] })
+  h.saved.set(old, { goal: 'obsolete state' })
+  assert.doesNotMatch((await h.command('handoff', 'preview')).text, /obsolete state/)
+  await h.command('handoff', 'reset')
+  const report = (await h.command('handoff', 'preview')).text
+  assert.doesNotMatch(report, /obsolete state|legacy goal|legacy note|new note/)
+})
+
+test('fallback read failures do not overwrite legacy state and later operations recover', async () => {
+  const h = host([['handoff-pack', handoff]]), old = legacyKey('handoff-pack')
+  h.saved.set(old, { goal: 'preserved goal' })
+  h.controls.beforeGet = async key => { if (key === old) throw new Error('legacy read unavailable') }
+  assert.match((await h.command('handoff', 'note unsaved note')).text, /legacy read unavailable/)
+  assert.equal(h.counts.set, 0); assert.equal(h.saved.size, 1)
+  h.controls.beforeGet = undefined
+  assert.match((await h.command('handoff', 'preview')).text, /preserved goal/)
+})
+
+test('a session change during legacy fallback cancels the mutation', async () => {
+  const h = host([['handoff-pack', handoff]]), old = legacyKey('handoff-pack')
+  h.saved.set(old, { goal: 'original session' })
+  h.controls.beforeGet = async key => { if (key === old) h.controls.id = 'B' }
+  assert.match((await h.command('handoff', 'note wrong session')).text, /Session changed/)
+  assert.equal(h.counts.set, 0); assert.equal(h.saved.size, 1)
+})
+
+test('hashed identities isolate both session ids and long folders', async () => {
+  const h = host([['handoff-pack', handoff]]), cwd = '/workspace/' + 'nested/'.repeat(50)
+  h.controls.cwd = cwd
+  await h.command('handoff', 'goal folder-A-session-A')
+  h.controls.id = 'B'
+  assert.doesNotMatch((await h.command('handoff', 'preview')).text, /folder-A-session-A/)
+  await h.command('handoff', 'goal folder-A-session-B')
+  h.controls.cwd = cwd + 'other'; h.controls.id = 'A'
+  assert.doesNotMatch((await h.command('handoff', 'preview')).text, /folder-A-session/)
+  await h.command('handoff', 'goal folder-B-session-A')
+  h.controls.cwd = cwd
+  const report = (await h.command('handoff', 'preview')).text
+  assert.match(report, /folder-A-session-A/); assert.doesNotMatch(report, /folder-A-session-B|folder-B-session-A/)
+  assert.equal(h.saved.size, 3)
+})
 
 test('all ten actual adapters compose in either order without command collisions or duplicate tools', async () => {
   for (const selected of [modules, [...modules].reverse()]) {
