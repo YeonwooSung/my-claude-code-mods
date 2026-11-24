@@ -124,3 +124,53 @@ test('tokens per second counts only requests whose stream was timed', () => {
   expect(sum.model.outputTokens).toBe(1_000)
   expect(sum.model.tokensPerSec).toBe(100)
 })
+
+test('recent turn charts reuse exclusive attribution with overlapping tools', () => {
+  const p = session()
+  p.turnStart(20_000, 't2')
+  const request = p.stepStart(20_000, { turnId: 't2', index: 0, model: 'm' })
+  p.toolStart(20_100, { id: 'parallel', tool: 'Bash', input: { command: 'test' } })
+  p.stepEnd(20_400, request)
+  p.toolEnd(20_800, 'parallel', ok)
+  p.turnComplete(21_000, 't2')
+  const sum = summarize(p.snapshot(30_000))
+  expect(sum.recentTurns).toEqual([
+    { id: 't1', retainedIndex: 1, wallMs: 10_000, exclusive: { model: 3000, subagent: 0, tool: 6050, engine: 950 }, running: false },
+    { id: 't2', retainedIndex: 2, wallMs: 1000, exclusive: { model: 400, subagent: 0, tool: 400, engine: 200 }, running: false },
+  ])
+  for (const cat of ['model', 'tool', 'subagent', 'engine'] as const)
+    expect(sum.recentTurns.reduce((n, t) => n + t.exclusive[cat], 0)).toBe(sum.exclusive[cat])
+})
+
+test('recent turn charts retain only twelve rows and identify the scoped order', () => {
+  const p = new Profiler('s')
+  for (let n = 0; n < 13; n++) { p.turnStart(n * 100, `t${n}`); p.turnComplete(n * 100 + 50, `t${n}`) }
+  expect(summarize(p.snapshot(2000)).recentTurns.map(t => t.retainedIndex)).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])
+  expect(summarize(p.snapshot(2000), 'turn').recentTurns).toEqual([
+    { id: 't12', retainedIndex: 1, wallMs: 50, exclusive: { model: 0, subagent: 0, tool: 0, engine: 50 }, running: false },
+  ])
+})
+
+test('open turn and slow call charts use the snapshot time and mark running', () => {
+  const p = new Profiler('s')
+  p.turnStart(0, 't')
+  p.toolStart(100, { id: 'b', tool: 'Bash', input: { command: 'sleep 1' } })
+  const sum = summarize(p.snapshot(1000))
+  expect(sum.recentTurns[0]).toMatchObject({ wallMs: 1000, running: true, exclusive: { model: 0, tool: 900, subagent: 0, engine: 100 } })
+  expect(sum.tools.slowest[0]).toMatchObject({ ms: 900, running: true })
+  p.stopFailure(1000)
+  expect(summarize(p.snapshot(5000)).recentTurns[0]).toMatchObject({ wallMs: 1000, running: false })
+  expect(summarize(p.snapshot(5000)).tools.slowest[0]?.running).toBe(false)
+})
+
+test('chart turn totals exclude background agent duration after the parent turn', () => {
+  const p = new Profiler('s')
+  p.turnStart(0, 't')
+  p.toolStart(10, { id: 'a', tool: 'Agent', input: { subagentType: 'Explore' } })
+  p.subagentStart(20, 'bg', 'Explore')
+  p.toolEnd(30, 'a', { ...ok, launchedAgentId: 'bg', launchedAsync: true })
+  p.turnComplete(100, 't')
+  const sum = summarize(p.snapshot(5000))
+  expect(sum.recentTurns[0]).toMatchObject({ wallMs: 100, exclusive: { model: 0, subagent: 0, tool: 20, engine: 80 } })
+  expect(sum.droppedTurns).toBe(0)
+})

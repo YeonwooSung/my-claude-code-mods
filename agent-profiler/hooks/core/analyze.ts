@@ -8,11 +8,20 @@ export type Interval = [number, number]
 export type Category = 'model' | 'subagent' | 'tool' | 'engine'
 export type Scope = 'session' | 'turn'
 
+export type TurnBreakdown = {
+  id: string
+  retainedIndex: number
+  wallMs: number
+  exclusive: Record<Category, number>
+  running: boolean
+}
+
 export type Summary = {
   scope: Scope
   turns: number
   wallMs: number
   exclusive: Record<Category, number>
+  recentTurns: TurnBreakdown[]
   model: {
     requests: number
     ttftAvg: number
@@ -38,7 +47,7 @@ export type Summary = {
     errors: number
     denied: number
     byTool: { tool: string; calls: number; ms: number }[]
-    slowest: { tool: string; label: string; ms: number; waitMs: number; ctx: string }[]
+    slowest: { tool: string; label: string; ms: number; waitMs: number; ctx: string; running: boolean }[]
   }
   // testMs sums every test run; testShare is the union of test execution inside main turns over agent time (≤ 1).
   bash: { byCategory: { category: BashCategory; calls: number; ms: number }[]; testMs: number; testShare: number }
@@ -157,8 +166,9 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
   const stepsByTurn = groupBy(steps, x => (x.ctx === MAIN ? x.turnId : undefined))
   const toolsByTurn = groupBy(mainTools, x => x.turnId)
   const exclusive: Record<Category, number> = { model: 0, subagent: 0, tool: 0, engine: 0 }
+  const recentTurns: TurnBreakdown[] = []
   let wallMs = 0
-  for (const turn of mainTurns) {
+  for (const [index, turn] of mainTurns.entries()) {
     const window: Interval = [turn.start, end(turn)]
     wallMs += window[1] - window[0]
     const tagged = [
@@ -170,6 +180,9 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
     ]
     const part = attribute(window, tagged)
     for (const cat of Object.keys(part) as Category[]) exclusive[cat] += part[cat]
+    if (index >= mainTurns.length - 12) recentTurns.push({
+      id: turn.id, retainedIndex: index + 1, wallMs: window[1] - window[0], exclusive: part, running: turn.end === undefined,
+    })
   }
 
   const ttfts = steps.filter(x => x.firstContent !== undefined).map(x => (x.firstContent as number) - x.start).sort((a, b) => a - b)
@@ -252,6 +265,7 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
     turns: mainTurns.length,
     wallMs,
     exclusive,
+    recentTurns,
     model: {
       requests: steps.length,
       ttftAvg: ttfts.length ? Math.round(ttfts.reduce((a, b) => a + b, 0) / ttfts.length) : 0,
@@ -279,7 +293,7 @@ export function summarize(s: Snapshot, scope: Scope = 'session'): Summary {
       slowest: [...timed]
         .sort((a, b) => b.wall - a.wall)
         .slice(0, 5)
-        .map(({ x, wall, wait }) => ({ tool: x.tool, label: toolLabel(x), ms: wall, waitMs: wait, ctx: x.ctx })),
+        .map(({ x, wall, wait }) => ({ tool: x.tool, label: toolLabel(x), ms: wall, waitMs: wait, ctx: x.ctx, running: x.end === undefined })),
     },
     bash: { byCategory: [...byCategory.values()].sort((a, b) => b.ms - a.ms), testMs, testShare: share(testIntervals) },
     reads: [...seen.values()]

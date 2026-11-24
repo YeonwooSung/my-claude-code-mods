@@ -6,8 +6,10 @@ import { MAX_EXPORT_BYTES, pendingKeys, splitRequest } from './core/export.ts'
 import { toOtlp, type OtlpRequest } from './core/otlp.ts'
 import { Profiler, summarizeInput, toolOutcome } from './core/profiler.ts'
 import { paneLines, renderReport, statusLine } from './core/report.ts'
+import { chartModel } from './core/chart.ts'
+import { renderCharts } from './chart-view.tsx'
 
-const VERSION = '0.1.7'
+const VERSION = '0.1.8'
 const PANE = 'agent-profiler'
 const COMMANDS = [
   { name: 'profile', description: "Show where this session's time went (model wait, tools, subagents, tests, re-reads); 'turn' for the last turn" },
@@ -334,8 +336,8 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'profile-pane' }, async $ => {
-    await $.ui.open({ id: PANE, title: 'Agent Profiler' })
-    return { text: 'Agent Profiler pane opened (shown in the terminal and the desktop app).' }
+    await $.ui.open({ id: PANE, title: 'Agent Profiler', focus: true, closeOnEscape: true })
+    return { text: 'Agent Profiler pane opened (shown on supported terminal, Desktop and VS Code surfaces).' }
   })
 
   on('command.run', { command: 'profile-export' }, async $ => {
@@ -349,10 +351,15 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
-    const lines = paneLines(cachedSummary(), profiler.running(Date.now()), e.props.bodyColumns ?? 60)
+    const sum = cachedSummary()
+    let charts
+    try { charts = renderCharts($, e, chartModel(sum)) } catch { /* Text remains available if a chart cannot be built. */ }
+    const [header, ...details] = paneLines(sum, profiler.running(Date.now()), e.props.bodyColumns ?? 60, !!charts)
     return (
       <Box flexDirection="column">
-        {lines.map(line => (
+        <Text bold>{header!.text}</Text>
+        {charts}
+        {details.map(line => (
           <Text bold={line.bold} dimColor={line.dim}>
             {line.text || ' '}
           </Text>

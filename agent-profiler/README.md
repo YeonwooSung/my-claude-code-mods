@@ -2,7 +2,7 @@
 
 A Claude Code mod that shows where an agent session's time goes: model wait, tool execution, subagents, test runs, repeated file reads, and engine overhead. It exports the session as an OTLP trace so you can open it in Jaeger or Grafana Tempo.
 
-Version 0.1.6 is verified on Claude Code **2.1.302**, including a real SDK-host permission/OTLP probe with telemetry export disabled. The function-hooks API is early access; the older 2.1.280–2.1.292 verification described in historical reports does not establish compatibility for this revision.
+Version 0.1.8 adds charts to `/profile-pane`. Chart render trees are tested on Claude Code **2.1.302 and 2.1.329** for terminal, Desktop and VS Code surfaces. Generated SVG output has been inspected in a browser; native app pixels remain unverified. The real SDK-host permission/OTLP probe on 2.1.302 belongs to the earlier permission revision. See [chart verification](../docs/verification/2026-11-25-profiler-charts.md) for the exact checks and limits.
 
 ## What it shows
 
@@ -61,10 +61,22 @@ Mods are on by default from Claude Code 2.1.287 (desktop 2.1.286). Earlier build
 |---|---|
 | `/profile` | Markdown report of the whole session (time categories, tool/model stats, repeated reads, subagents, findings) |
 | `/profile turn` | The same report for the last turn only |
-| `/profile-pane` | Opens the live pane (in-flight requests and tools, category bars, recent findings) |
+| `/profile-pane` | Opens the live chart pane (session composition, recent turns, slowest calls, running items and findings); Esc closes it |
 | `/profile-export` | Writes a full snapshot of the session as OTLP JSON chunk files and POSTs each if an endpoint is configured; returns one line per file written and the POST result |
 
 A status line (`model 61% - tools 28% - running: Bash npm test 14s`) is updated at most twice a second.
+
+## Live charts
+
+Run `/profile-pane` to see:
+
+- **Session composition:** exclusive model response wait, tools, blocking subagents and inferred engine/other time. The segments add up to agent time, with idle time excluded.
+- **Recent turns:** up to 12 retained main turns, ordered oldest to newest. All visible turns use the same time scale, so a shorter turn has a shorter bar. The number is its order within retained records, not its original session number after records have been dropped.
+- **Slowest calls:** the five slowest individual tool calls by elapsed wall time, with a separate scale. Overlapping calls are not added to the session composition.
+
+Terminal charts use colored `M` / `T` / `A` / `E` cells and numeric legends. Desktop and supported VS Code surfaces use static SVG with text alternatives. Open turns and calls show `running`; dropped turns and incomplete spans are disclosed. Reloading the mod resets the in-memory charts, like the existing report. No new trace collection, network traffic or persistent data is added.
+
+Charts require at least 40 body columns and 8 body rows. Smaller panes use text; fewer recent turns appear in shorter panes. Details remain scrollable. Secret masking runs before chart labels are shortened; labels are limited to 64 Unicode code points, and long SVG labels are clipped separately from time values. Chart generation errors fall back to text. Model wait is not model-internal compute time, and engine time is inferred.
 
 ## Settings
 
@@ -135,9 +147,9 @@ Span names follow the GenAI semantic conventions: `chat <model>`, `execute_tool 
 
 | Environment | Hooks, recording, export | Pane / status line | `/profile` text |
 |---|---|---|---|
-| Terminal `claude` | yes | yes | yes |
-| Desktop Code tab | yes | yes | yes |
-| VS Code chat panel | yes | no (drawing is not shown) | yes |
+| Terminal `claude` | yes | engine-tested; new chart pixels unverified | yes |
+| Desktop Code tab | yes | engine-tested; new chart pixels unverified | yes |
+| VS Code chat panel (extension 2.1.299+) | yes | engine-tested; native pixels unverified | yes |
 | `claude -p` / SDK | yes | no | yes |
 
 

@@ -88,18 +88,25 @@ export function statusLine(sum: Summary, running: RunningItem[]): string {
   return parts.join(' · ')
 }
 
-export function paneLines(sum: Summary, running: RunningItem[], width: number): PaneLine[] {
+export function paneLines(sum: Summary, running: RunningItem[], width: number, charts = false): PaneLine[] {
   const w = Math.max(30, width)
   const out: PaneLine[] = [{ text: `${fmtMs(sum.wallMs)} agent time · ${sum.turns} turn(s)`, bold: true }]
-  for (const cat of ORDER) {
+  if (!charts) for (const cat of ORDER) {
     const share = sum.wallMs ? sum.exclusive[cat] / sum.wallMs : 0
     out.push({ text: `${SHORT[cat].padEnd(12)} ${bar(share, Math.min(20, w - 20))} ${pct(sum.exclusive[cat], sum.wallMs).padStart(4)}` })
+  }
+  if (!charts) {
+    if (!sum.turns) out.push({ text: 'No turns recorded yet.', dim: true })
+    if (sum.droppedTurns) out.push({ text: `${sum.droppedTurns} older turns dropped; retained order shown.`, dim: true })
+    if (sum.incomplete) out.push({ text: `${sum.incomplete} spans still open.`, dim: true })
   }
   out.push({ text: '' }, { text: 'Running', bold: true })
   if (running.length === 0) out.push({ text: '  idle', dim: true })
   for (const item of running.slice(0, 5)) out.push({ text: clip(`  ${fmtMs(item.ms).padStart(6)} ${item.label}`, w) })
-  out.push({ text: '' }, { text: 'Slowest tools', bold: true })
-  for (const row of sum.tools.slowest) out.push({ text: clip(`  ${fmtMs(row.ms).padStart(6)} ${row.label}`, w) })
+  if (!charts) {
+    out.push({ text: '' }, { text: 'Slowest tools', bold: true })
+    for (const row of sum.tools.slowest) out.push({ text: clip(`  ${fmtMs(row.ms).padStart(6)} ${row.label}${row.running ? ' · running' : ''}`, w) })
+  }
   if (sum.findings.length) {
     out.push({ text: '' }, { text: 'Findings', bold: true })
     for (const finding of sum.findings.slice(0, 4)) out.push({ text: clip(`• ${finding}`, w * 2) })

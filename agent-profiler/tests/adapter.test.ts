@@ -141,3 +141,114 @@ for (const decision of ['accept', 'reject'] as const) {
     expect(forwarded).toBe(1)
   })
 }
+
+const CHART_PANE = { title: 'Agent Profiler', isFocused: true, bodyColumns: 60, placement: 'inline' as const, scroll: { offset: 0, bodyRows: 24 }, view: {} }
+function chartHost(on: On, wrote = () => {}) {
+  mock.clock(on)
+  on('session.id', () => ({ value: 'chart-session' }))
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: 'unchanged' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('fs.write', () => { wrote(); return { value: undefined } })
+}
+for (const surface of ['terminal', 'desktop', 'vscode'] as const) {
+  test(`${surface} profiler pane shows real charts, live state and retained order`, async ($, on) => {
+    chartHost(on)
+    await $.session.start({ cwd: '/r', surface, isInteractive: true })
+    await $.turn.start({ text: 'PRIVATE_PROMPT', turnId: 'PRIVATE_TURN' })
+    await $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: 'chart-tool' })
+    const ui = await $.ui.mount({ plugin: 'agent-profiler', surface, component: 'Pane', requestId: 'agent-profiler', props: CHART_PANE })
+    const first = JSON.stringify(await ui.drawn())
+    expect(first).toContain(surface === 'terminal' ? 'Raster' : 'Svg')
+    expect(first).toContain('Session')
+    expect(first).toContain('Turn 1')
+    expect(first).toContain('Bash npm test')
+    expect(first).toContain('running')
+    expect(first).not.toContain('PRIVATE_PROMPT')
+    expect(first).not.toContain('PRIVATE_TURN')
+    await $.turn.complete({ turnId: 'PRIVATE_TURN', reason: 'answer' } as never)
+    await ui.redraw()
+    const done = JSON.stringify(await ui.drawn())
+    expect(done).not.toContain('still open')
+    const report = await $.command.run({ command: 'profile', args: '' } as never)
+    const total = String(report.text).match(/· ([^·\n]+) agent time/)![1]!
+    expect(done).toContain(total)
+    await $.session.start({ cwd: '/r', surface, isInteractive: true })
+    await ui.redraw()
+    const reset = JSON.stringify(await ui.drawn())
+    expect(reset).toContain('No turns recorded yet.')
+    expect(reset).not.toContain('Bash npm test')
+    expect(reset).not.toContain('Turn 1')
+    await ui.unmount()
+  })
+}
+
+test('profiler charts respect narrow and short pane boundaries and retain text diagnostics', async ($, on) => {
+  chartHost(on)
+  await $.session.start({ cwd: '/r', surface: 'terminal', isInteractive: true })
+  await $.turn.start({ text: 'go', turnId: 't' })
+  const ui = await $.ui.mount({ plugin: 'agent-profiler', surface: 'terminal', component: 'Pane', requestId: 'agent-profiler', props: { ...CHART_PANE, bodyColumns: 39 } })
+  expect(JSON.stringify(await ui.drawn())).not.toContain('Raster')
+  expect(JSON.stringify(await ui.drawn())).toContain('Running')
+  await ui.redraw({ ...CHART_PANE, bodyColumns: 40, scroll: { offset: 0, bodyRows: 8 } })
+  expect(JSON.stringify(await ui.drawn())).toContain('Raster')
+  await ui.redraw({ ...CHART_PANE, bodyColumns: 40, scroll: { offset: 0, bodyRows: 7 } })
+  expect(JSON.stringify(await ui.drawn())).not.toContain('Raster')
+  await ui.unmount()
+})
+
+test('chart drawing does not read or write external state and handles secret labels', async ($, on) => {
+  let io = 0
+  chartHost(on, () => { io++ })
+  on('fs.read', () => { io++; return { value: '' } })
+  on('store.get', () => { io++; return { value: undefined } })
+  on('store.set', () => { io++; return { value: undefined } })
+  on('http.fetch', () => { io++; throw new Error('no network during drawing') })
+  await $.session.start({ cwd: '/r', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'go', turnId: 't' })
+  await $.tool.call({ tool: 'Bash', command: 'run --password "FAKE_CHART_ADAPTER_SECRET"', tool_use_id: 'secret-chart' })
+  io = 0
+  const ui = await $.ui.mount({ plugin: 'agent-profiler', surface: 'desktop', component: 'Pane', requestId: 'agent-profiler', props: CHART_PANE })
+  for (let i = 0; i < 3; i++) {
+    await ui.redraw()
+    const output = JSON.stringify(await ui.drawn())
+    expect(output).toContain('[REDACTED]')
+    expect(output).not.toContain('FAKE_CHART_ADAPTER_SECRET')
+  }
+  expect(io).toBe(0)
+  await ui.unmount()
+})
+
+test('a streaming model failure freezes chart values and a new session id clears them', async ($, on) => {
+  mock.clock(on)
+  let session = 'before-clear'
+  on('session.id', () => ({ value: session }))
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('classic.StopFailure', () => ({}))
+  on('turn.step', async function* () {
+    yield { kind: 'text', index: 0, text: 'local fixture' }
+    return { turnId: 'failed-chart', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage: { model: 'm', input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }
+  })
+  await $.session.start({ cwd: '/r', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'go', turnId: 'failed-chart' })
+  const stream = $.turn.step({ turnId: 'failed-chart', index: 0, model: 'm', messageCount: 1 })
+  await stream.next()
+  const ui = await $.ui.mount({ plugin: 'agent-profiler', surface: 'desktop', component: 'Pane', requestId: 'agent-profiler', props: CHART_PANE })
+  expect(JSON.stringify(await ui.drawn())).toContain('still open')
+  await $.classic.StopFailure({ error: 'rate_limit' } as never)
+  await ui.redraw()
+  const failed = JSON.stringify(await ui.drawn())
+  expect(failed).not.toContain('still open')
+  await ui.redraw()
+  expect(JSON.stringify(await ui.drawn())).toBe(failed)
+  await stream.next()
+  session = 'after-clear'
+  await $.turn.start({ text: 'new session', turnId: 'new-chart' })
+  await ui.redraw()
+  const fresh = JSON.stringify(await ui.drawn())
+  expect(fresh).not.toContain('Turn 2')
+  expect(fresh).toContain('1 turn(s)')
+  await ui.unmount()
+})

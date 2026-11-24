@@ -51,3 +51,17 @@ test('an API failure freezes model and wall time throughout the usage-limit wait
   expect(failed.exclusive.model).toBe(2_000)
   expect(cache.get(p, 'session', 3_600_000)).toBe(failed)
 })
+
+test('cached chart rows update only with the live bucket and reset with the profiler', () => {
+  const p = new Profiler('s'), cache = new SummaryCache()
+  p.turnStart(0, 't')
+  const first = cache.get(p, 'session', 1000)
+  expect(first.recentTurns[0]?.wallMs).toBe(1000)
+  expect(cache.get(p, 'session', 1200)).toBe(first)
+  expect(cache.get(p, 'session', 1500).recentTurns[0]?.wallMs).toBe(1500)
+  p.turnComplete(1600, 't')
+  const done = cache.get(p, 'session', 2000)
+  expect(done.recentTurns[0]?.running).toBe(false)
+  expect(cache.get(p, 'session', 9000)).toBe(done)
+  expect(cache.get(new Profiler('next'), 'session', 9000).recentTurns).toEqual([])
+})

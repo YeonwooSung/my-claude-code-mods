@@ -32,6 +32,8 @@ test('summarize over 20k spans in many turns stays fast', () => {
   const sum = summarize(s)
   const ms = Date.now() - t0
   expect(sum.turns).toBe(2_000)
+  expect(sum.recentTurns).toHaveLength(12)
+  expect(sum.recentTurns[0]?.retainedIndex).toBe(1989)
   expect(sum.exclusive.model + sum.exclusive.tool + sum.exclusive.subagent + sum.exclusive.engine).toBe(sum.wallMs)
   expect(ms).toBeLessThan(200)
 })

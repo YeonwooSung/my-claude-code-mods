@@ -64,3 +64,18 @@ test('a completed call without a permission observation reports unavailable appr
   p.turnComplete(1000, 't')
   expect(renderReport(summarize(p.snapshot(1000)))).toContain('approval/check wait unavailable')
 })
+
+test('text fallback exposes empty and partial coverage, chart details avoid duplicated lists', () => {
+  const empty = summarize(new Profiler('s').snapshot(0))
+  expect(paneLines(empty, [], 39).map(l => l.text).join('\n')).toContain('No turns recorded yet.')
+  const sum = summarize(session().snapshot(20_000))
+  sum.droppedTurns = 3; sum.incomplete = 1
+  const fallback = paneLines(sum, [], 39).map(l => l.text).join('\n')
+  expect(fallback).toContain('3 older turns dropped')
+  expect(fallback).toContain('1 spans still open')
+  const details = paneLines(sum, [], 60, true).map(l => l.text).join('\n')
+  expect(details).toContain('Running')
+  expect(details).toContain('Findings')
+  expect(details).not.toContain('Slowest tools')
+  expect(details).not.toContain('model        ')
+})
