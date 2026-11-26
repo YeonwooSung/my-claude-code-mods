@@ -56,3 +56,7 @@ Typecheck requires matching local engine declarations in `.claude-plugin/types`.
 ## Hook and source-review details
 
 `command.run` answers only `/pin` with local memo operations and text. The mod does not invoke slash commands, run tools/programs or contact a network host. Startup registers `/pin`; lifecycle and `turn.start` refresh the local cwd/session identity and memo store. `ui.render` preserves the existing AbovePrompt UI and appends this memo band; buttons update only this mod's stored memo/check state after checking identity. No conversation, permission decision, settings or instruction files are rewritten. Keys are local document/identity identifiers and constructors initialize normal controller state; they are not installer credentials or evaluated code.
+
+## Review fixes (2026-11-26)
+
+Persistence uses bounded `pin-memo:v2` identity hashes. Readable v1 keys (at most 256 characters) remain compatible; subsequent mutations save under v2. Longer project paths work without exceeding the host key limit.

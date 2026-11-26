@@ -2,7 +2,7 @@ import { test, expect } from 'claude-code/testing'
 import { Feature } from '../hooks/core/feature.ts'
 function fixture() {
   let body = 'first', staged = 'staged diff'
-  return { setBody: (s: string) => { body = s }, setStaged: (s: string) => { staged = s }, io: { cwd: '/repo', read: async () => body, run: async (args: readonly string[]) => ({ exitCode: 0, stdout: args.includes('status') ? ' M src/auth.ts\0?? test new.ts\0' : args.includes('--cached') ? staged : 'working diff', stderr: '' }), env: async () => undefined, revision: async () => 'a' } }
+  return { setBody: (s: string) => { body = s }, setStaged: (s: string) => { staged = s }, io: { cwd: '/repo', read: async () => body, run: async (args: readonly string[]) => ({ exitCode: 0, stdout: args.includes('--show-prefix') ? '' : args.includes('status') ? ' M src/auth.ts\0?? test new.ts\0' : args.includes('--cached') ? staged : 'working diff', stderr: '' }), env: async () => undefined, revision: async () => 'a' } }
 }
 test('grouping and review status persist, then file edits invalidate only that review', async () => {
   const x = fixture(), f = new Feature()
@@ -30,7 +30,7 @@ test('invalid paths, unchanged files and incomplete evidence cannot become revie
 })
 test('purpose grouping and marking preserve repeated spaces in filenames', async () => {
   const x = fixture(), f = new Feature()
-  const port = { ...x.io, run: async (args: readonly string[]) => ({ exitCode: 0, stdout: args.includes('status') ? ' M src/auth  service.ts\0' : 'diff', stderr: '' }) }
+  const port = { ...x.io, run: async (args: readonly string[]) => ({ exitCode: 0, stdout: args.includes('--show-prefix') ? '' : args.includes('status') ? ' M src/auth  service.ts\0' : 'diff', stderr: '' }) }
   await f.command('group Authentication | src/auth  service.ts', port)
   expect(await f.command('mark src/auth  service.ts', port)).toContain('REVIEWED src/auth  service.ts')
   expect(await f.command('', port)).toContain('[Authentication]')

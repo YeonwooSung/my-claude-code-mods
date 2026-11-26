@@ -109,3 +109,42 @@ test('/context-inspect answers with the error when the report fails', async ($, 
   const answer = await $.command.run({ command: 'context-inspect', args: 'advice' } as never)
   expect(String(answer.text)).toMatch(/^context-inspector: report failed: /)
 })
+
+test('pre-clear model completions never enter the next session export',async($,on)=>{
+ mock.clock(on);mock.env(on,{HOME:'/tmp/review-home'})
+ let id='old-session';const writes=new Map<string, string>()
+ on('session.id',()=>({value:id}));on('session.root',()=>({value:'/review-project'}));on('session.cwd',()=>({value:'/review-project'}))
+ on('fs.list',()=>({value:[]}));on('fs.write',(_$,e)=>{writes.set(e.path,e.text);return {value:undefined}})
+ on('session.start',()=>({cwd:'/review-project'}));on('session.end',()=>({sessionId:id}));on('turn.start',(_$,e)=>({turnId:e.turnId}))
+ const usage={model:'OLD_MODEL_SENTINEL',input_tokens:987654,output_tokens:1,cache_read_input_tokens:0,cache_creation_input_tokens:0}
+ on('turn.step',async function*(){yield {kind:'text',index:0,text:'OLD_STREAM_SENTINEL'};yield {kind:'stop',stopReason:'end_turn',usage};return {turnId:'old-turn',index:0,answer:'old',toolUses:[],stopReason:'end_turn',usage}})
+ await $.session.start({cwd:'/review-project',surface:null,isInteractive:false})
+ await $.turn.start({text:'old',turnId:'old-turn'})
+ const stream=$.turn.step({turnId:'old-turn',index:0,model:'OLD_MODEL_SENTINEL',messageCount:1});await stream.next()
+ await $.session.end({reason:'clear'} as never);id='new-session'
+ await $.turn.start({text:'new',turnId:'new-turn'})
+ await stream.next();await stream.next()
+ await $.command.run({command:'context-export',args:''} as never)
+ const exported=[...writes.entries()].filter(([path])=>path.includes('/new-session/')).map(([,text])=>text).join('\n')
+ expect(exported).not.toContain('OLD_MODEL_SENTINEL')
+ expect(exported).not.toContain('987654')
+})
+
+test('a compaction completing after clear cannot enter the replacement ledger', async ($, on) => {
+  mock.clock(on); mock.env(on, { HOME: '/tmp/context-fixture' })
+  let id = 'old', entered!: () => void, release!: () => void
+  const started = new Promise<void>(resolve => { entered = resolve }), waiting = new Promise<void>(resolve => { release = resolve })
+  const writes: string[] = []
+  on('session.id', () => ({ value: id }))
+  on('session.start', () => ({ cwd: '/r' })); on('session.end', () => ({ sessionId: id }))
+  on('fs.write', (_$, e) => { writes.push(e.text); return { value: undefined } })
+  on('session.compact', async () => { entered(); await waiting; return { messages: [{ role: 'user', text: 'Old summary', toolUses: [] }], tokensBefore: 987654, tokensAfter: 123 } })
+  await $.session.start({ cwd: '/r', surface: null, isInteractive: false })
+  const compacting = $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'Old context', toolUses: [], handle: 'h' }] } as never)
+  await started
+  await $.session.end({ reason: 'clear' } as never); id = 'new'
+  release(); expect(await compacting).toMatchObject({ tokensBefore: 987654, tokensAfter: 123 })
+  await $.command.run({ command: 'context-export', args: '' } as never)
+  expect(writes.join('\n')).not.toContain('"type":"compaction"')
+  expect(writes.join('\n')).not.toContain('987654')
+})

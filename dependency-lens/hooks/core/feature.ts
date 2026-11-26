@@ -57,7 +57,7 @@ export class Feature {
       const oldFile = async (path: string) => {
         const names = await git(io, ['ls-tree', '-z', '--name-only', this.data.base, '--', path])
         if (!names.split('\0').includes(path)) return undefined
-        return parse(await git(io, ['show', `${this.data.base}:${path}`]))
+        return parse(await git(io, ['show', `${this.data.base}:./${path}`]))
       }
       const newFile = async (path: string) => {
         let body: string

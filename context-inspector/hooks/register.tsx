@@ -10,7 +10,7 @@ import { summarize, type Scope, type Summary } from './core/summary.ts'
 import { inputOf } from './core/tokens.ts'
 import { MAIN } from './core/types.ts'
 
-const VERSION = '0.1.4'
+const VERSION = '0.1.5'
 const PANE = 'context-inspector'
 const COMMANDS = [
   {
@@ -69,15 +69,19 @@ function reset($: EngineInterface): void {
 // Paints are queued behind the event that asked, at most one pending.
 function paint($: EngineInterface, options: PluginOptions): void {
   if (paintQueued) return
+  const own = ledger
   paintQueued = true
   try {
     $.clock.after(0, async () => {
       paintQueued = false
       try {
-        percent = (await $.session.usage()).context.percent
+        const usage = await $.session.usage()
+        if (own !== ledger) return
+        percent = usage.context.percent
       } catch {
         // keep the last figure
       }
+      if (own !== ledger) return
       safe(() => {
         const sum = summary()
         $.ui.status(statusLine(sum, percent))
@@ -166,24 +170,29 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('tool.call', async ($, e, next) => {
+    const own = ledger
     const id = e.tool_use_id
-    if (id !== undefined) safe(() => ingestToolCall(ledger, id, String(e.tool), e.agentId, e as unknown as Record<string, unknown>))
+    if (id !== undefined) safe(() => ingestToolCall(own, id, String(e.tool), e.agentId, e as unknown as Record<string, unknown>))
     const answer = await next(e)
-    if (id !== undefined) safe(() => ingestToolResult(ledger, id, answer))
+    if (id !== undefined && own === ledger) safe(() => ingestToolResult(own, id, answer))
     return answer
   }).catch(($, e, next) => next(e))
 
   on('turn.step', async function* ($, e, next) {
+    const own = ledger
     for await (const chunk of next(e)) {
-      if (chunk.kind === 'stop') safe(() => ledger.sample(e.agentId ?? MAIN, inputOf(chunk.usage)))
+      if (chunk.kind === 'stop' && own === ledger) safe(() => own.sample(e.agentId ?? MAIN, inputOf(chunk.usage)))
       yield chunk
     }
   })
 
   on('session.compact', async ($, e, next) => {
+    const own = ledger
     const result = await next(e)
-    safe(() => ingestCompaction(ledger, e, result))
-    paint($, options)
+    if (own === ledger) {
+      safe(() => ingestCompaction(own, e, result))
+      paint($, options)
+    }
     return result
   }).catch(($, e, next) => next(e))
 

@@ -99,6 +99,9 @@ Start a new Claude Code session after installation, or run `/reload-plugins` in 
 
 ## Development
 
+Review fixes dated 2026-11-26 cover incomplete Git output during restore, late session events, nested-folder Git paths, dependency baselines and long Pin Memo identity keys. See the [verification record](docs/verification/2026-11-26-review-fixes.md).
+
+
 [Expanded workflow validation (2026-10-18)](docs/verification/2026-10-18-workflow-validation.md) documents 55 added tests, real-Git regressions and ten-adapter controlled-host composition. Individual engine suites are verified; live UI and actual combined engine loading require separate integration checks.
 
 Use Node 22.19.0 or later. Dependencies are pinned in `package-lock.json`.

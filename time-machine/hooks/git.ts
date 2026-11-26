@@ -2,7 +2,7 @@ import { type FileChange, MAX_FILES } from './core/types.ts'
 
 export { MAX_FILES }
 
-export type RunResult = { exitCode: number; stdout: string; stderr: string }
+export type RunResult = { exitCode: number; stdout: string; stderr: string; isStdoutTruncated?: boolean; isStderrTruncated?: boolean }
 export type RunOptions = { env?: Record<string, string>; cwd?: string; timeoutMs?: number }
 export type Runner = (argv: readonly string[], opts?: RunOptions) => Promise<RunResult>
 export type SnapResult = { commit: string; changed: boolean; files: FileChange[]; filesTotal: number }
@@ -28,6 +28,13 @@ export class GitError extends Error {
     const line = lines.find(l => l.startsWith('fatal:') || l.startsWith('error:')) ?? lines[0] ?? ''
     super(`git ${args[0] ?? ''} failed (${result.exitCode}): ${line}`)
   }
+}
+
+// Exit zero does not make a partial listing safe evidence for snapshots or restore.
+function completeResult(args: readonly string[], result: RunResult): RunResult {
+  if (result.isStdoutTruncated || result.isStderrTruncated)
+    throw new GitError(args, { ...result, exitCode: result.exitCode || 1, stderr: 'error: process output was truncated; refusing incomplete Git evidence' })
+  return result
 }
 
 // `--name-status` lines: `M\tpath`, `R100\told\tnew`, `C75\tfrom\tto`; the path kept is the new one.
@@ -115,9 +122,9 @@ export class ShadowGit {
   }
 
   // The raw result, a nonzero exit included.
-  exec(args: readonly string[], opts: GitOptions = {}): Promise<RunResult> {
+  async exec(args: readonly string[], opts: GitOptions = {}): Promise<RunResult> {
     const { argv, options } = this.invocation(args, opts)
-    return (opts.runner ?? this.runner)(argv, options)
+    return completeResult(args, await (opts.runner ?? this.runner)(argv, options))
   }
 
   private invocation(args: readonly string[], opts: GitOptions): { argv: string[]; options: RunOptions } {
@@ -151,6 +158,7 @@ export class ShadowGit {
       env: { GIT_COMMON_DIR: this.gitDir, GIT_OBJECT_DIRECTORY: `${this.gitDir}/objects`, GIT_ALTERNATE_OBJECT_DIRECTORIES: '', GIT_NAMESPACE: '', GIT_CONFIG_PARAMETERS: '' },
       timeoutMs: TIMEOUT_MS,
     })
+    completeResult(args, result)
     if (result.exitCode !== 0) throw new GitError(args, result)
     await this.syncExcludes()
   }
@@ -161,6 +169,7 @@ export class ShadowGit {
     const dst = `${this.gitDir}/info/exclude`
     const args = ['sh', '-c', 'if [ -f "$1" ]; then mkdir -p "$(dirname "$2")" && cp "$1" "$2"; fi', 'tm-sync', src, dst]
     const result = await this.runner(args, { timeoutMs: TIMEOUT_MS })
+    completeResult(['sync-excludes'], result)
     if (result.exitCode !== 0) throw new GitError(['sync-excludes'], result)
   }
 
@@ -234,6 +243,7 @@ export class ShadowGit {
         // A minified bundle's single line can be megabytes: bytes are bounded too.
         env: { ...options.env, TM_LINES: String(maxLines + 1), TM_BYTES: String(DIFF_BYTES) },
       })
+      completeResult(['diff', a, b], r)
       if (r.exitCode !== 0) throw new GitError(['diff', a, b], r)
       const lines = r.stdout.replace(/\n$/, '').split('\n')
       const more = lines.length > maxLines || r.stdout.length >= DIFF_BYTES

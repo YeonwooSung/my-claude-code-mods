@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 import { Feature } from '../hooks/core/feature.ts'
-const io = { cwd: '/repo', read: async () => '', run: async () => ({ exitCode: 0, stdout: ' M src/auth.ts\0', stderr: '' }), env: async () => undefined, revision: async () => 'a' }
+const io = { cwd: '/repo', read: async () => '', run: async (args: readonly string[]) => ({ exitCode: 0, stdout: args.includes('--show-prefix') ? '' : ' M src/auth.ts\0', stderr: '' }), env: async () => undefined, revision: async () => 'a' }
 test('handoff preview combines goal, changed paths, remaining tasks and completed tasks after reload', async () => {
   const f = new Feature()
   await f.command('goal Fix login retry', io)

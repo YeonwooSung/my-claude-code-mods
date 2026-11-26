@@ -28,7 +28,7 @@ Development: `npm test`, `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test
 /scope list
 ```
 
-Warnings only; no tool is blocked. Scope entries use literal file/directory boundaries, not globs. Baselines and displayed paths cap at 200; a capped baseline is reported as incomplete. Run Git analysis from the repository root.
+Warnings only; no tool is blocked. Scope entries use literal file/directory boundaries, not globs. Baselines and displayed paths cap at 200; a capped baseline is reported as incomplete. Git paths are relative to the current session folder.
 
 Local preview before marketplace publication: `claude --plugin-dir ./scope-guard` from this checkout. Engine tests were run with Claude Code 2.1.302.
 
@@ -57,3 +57,9 @@ For review: `String.raw`/regular-expression literals in the redactor are string-
 The session cwd and user-selected base ref/path scope are used to query the local Git root and changed path names. This adapter has no direct filesystem reader.
 
 The destination of `process.run` is the local Git executable. Its argv contains the documented Git subcommand/options and local project paths or selected refs, with the session cwd as the working directory. File contents are not inserted into shell code, sent as stdin, or posted to a server by this adapter. Git reads the repository locally and returns stdout/stderr for this analysis. Reports return to the local slash-command caller; persisted feature records go to this plugin’s local cwd/session-scoped store. This mod has no HTTP upload, remote recipient, server-provided command source or own tool replay. It forwards independently requested tool calls once; any network activity of those calls belongs to their original inputs and permissions. The program list above describes what the mod requests; installed executables and user/system configuration retain their own capabilities.
+
+## Review fixes (2026-11-26)
+
+Git status paths are normalized to the current session cwd, including both rename sides. Repository changes outside that folder retain `../` prefixes and are outside a `.` scope.
+
+Scopes originally configured from a nested cwd by an older release may retain root-relative baseline records. Use `/scope reset` and re-add allowed paths once to recapture that baseline. Scopes configured at the repository root use the same path basis as before.

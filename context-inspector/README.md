@@ -99,3 +99,7 @@ npx -y -p typescript@5 tsc -p context-inspector --noEmit
 `session.append` ingests accounting metadata from the incoming conversation row and passes the event through unchanged. `tool.call` records the tool's input/result metadata and returns the original result. `turn.step` observes token usage while forwarding chunks. `session.compact` records compaction accounting and returns the downstream result unchanged. Lifecycle hooks reset only this mod's in-memory ledger on session boundaries or repaint its own UI. None changes conversation text, settings, instructions, permission rules or other tools' inputs/results.
 
 `command.run` answers only `/context-inspect` (report), `/context-pane` (open this pane), and `/context-export` (the JSONL data files described above). These hooks do not themselves run other slash commands. `ui.render` draws this mod's pane. `Ledger.size` is a pure read of the in-memory item count with no I/O; its constructor initializes normal state. Generic keys/constructors in these sources are not credential access or dynamically evaluated code. The only environment lookup expands HOME in the export directory; no credential or network destination is needed.
+
+## Review fixes (2026-11-26)
+
+Streams, tool results, compactions and queued usage paints are bound to the ledger that started them. Delayed completions after clear/resume do not enter the replacement session.

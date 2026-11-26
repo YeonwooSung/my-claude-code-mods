@@ -45,7 +45,7 @@ function host(selected = modules, underlying = async () => success()) {
     },
     command: { register: async spec => { if (commands.has(spec.name) && commands.get(spec.name) !== owner) throw new Error('command collision'); commands.set(spec.name, owner); return { command: spec.name } } },
     fs: { read: async (_path, options) => options?.as === 'bytes' ? { base64: '' } : '{}', list: async () => [], stat: async () => ({ kind: 'file', size: 0, mtimeMs: 0, isLink: false }) },
-    process: { run: async argv => ({ exitCode: 0, stdout: argv.includes('--show-toplevel') ? controls.cwd + '\n' : argv.includes('rev-parse') ? 'a'.repeat(40) + '\n' : argv.includes('status') ? controls.status : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false }) },
+    process: { run: async argv => ({ exitCode: 0, stdout: argv.includes('--show-prefix') ? '' : argv.includes('--show-toplevel') ? controls.cwd + '\n' : argv.includes('rev-parse') ? 'a'.repeat(40) + '\n' : argv.includes('status') ? controls.status : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false }) },
     ui: { toast: message => toasts.push(message) },
     tool: { call: input => dispatch('tool.call', input, { plugin: owner, tier: 'append' }) },
   })

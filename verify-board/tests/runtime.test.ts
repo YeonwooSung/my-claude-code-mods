@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { outcome, relativePath, revision, safeText } from '../hooks/core/runtime.ts'
+import { outcome, relativePath, revision, safeText, statusPaths } from '../hooks/core/runtime.ts'
 
 test('root-directory path normalization still enforces a usable project-relative identity', () => {
   expect(relativePath('/', '/tmp/a.ts')).toBe('tmp/a.ts')
@@ -35,4 +35,17 @@ test('oversized quoted credential forms cannot leak their continuation after lin
     expect(result).not.toContain('PRIVATE_TAIL')
     expect(result).toContain('OMITTED')
   }
+})
+
+test('porcelain paths and both rename sides become cwd-relative without trimming path spaces', async () => {
+  const io = { cwd: '/repo/packages/my app ', read: async () => '', env: async () => undefined, revision: async () => undefined,
+    run: async (argv: readonly string[]) => ({ exitCode: 0, stdout: argv.includes('--show-prefix') ? 'packages/my app /\n' : ' M packages/my app /a.ts\0R  packages/my app /new.ts\0packages/my app /old.ts\0 M other.ts\0', stderr: '' }) }
+  expect(await statusPaths(io)).toEqual(['a.ts', 'new.ts', 'old.ts', '../../other.ts'])
+  expect(await statusPaths({ ...io, run: async (argv: readonly string[]) => ({ exitCode: 0, stdout: argv.includes('--show-prefix') ? '\n' : ' M a.ts\0', stderr: '' }) })).toEqual(['a.ts'])
+})
+
+test('invalid or truncated Git prefixes never produce trustworthy path classifications', async () => {
+  const base = { cwd: '/repo', read: async () => '', env: async () => undefined, revision: async () => undefined }
+  await expect(statusPaths({ ...base, run: async () => ({ exitCode: 0, stdout: 'partial', stderr: '' }) })).rejects.toThrow('prefix')
+  await expect(statusPaths({ ...base, run: async () => ({ exitCode: 0, stdout: 'packages/', stderr: '', isStdoutTruncated: true }) })).rejects.toThrow('incomplete')
 })

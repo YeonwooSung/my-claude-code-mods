@@ -28,7 +28,7 @@ test('denied reads and malformed lock package maps remain incomplete evidence', 
   const lock = { lockfileVersion: 3, packages: [] }
   expect(compare({}, {}, lock, lock).join('\n')).toContain('INCOMPLETE')
   const f = new Feature()
-  const io = { cwd: '/repo', read: async (path: string) => { if (path.endsWith('/package.json')) throw new Error('permission denied'); return '{"lockfileVersion":3,"packages":{}}' }, run: async (args: readonly string[]) => ({ exitCode: 0, stdout: args.includes('ls-tree') ? args.at(-1) + '\0' : args.includes('show') ? args.at(-1)!.endsWith(':package.json') ? '{"dependencies":{"pkg":"1"}}' : '{"lockfileVersion":3,"packages":{}}' : 'commit', stderr: '' }), env: async () => undefined, revision: async () => 'a' }
+  const io = { cwd: '/repo', read: async (path: string) => { if (path.endsWith('/package.json')) throw new Error('permission denied'); return '{"lockfileVersion":3,"packages":{}}' }, run: async (args: readonly string[]) => ({ exitCode: 0, stdout: args.includes('ls-tree') ? args.at(-1) + '\0' : args.includes('show') ? args.at(-1)!.endsWith(':./package.json') ? '{"dependencies":{"pkg":"1"}}' : '{"lockfileVersion":3,"packages":{}}' : 'commit', stderr: '' }), env: async () => undefined, revision: async () => 'a' }
   expect(await f.command('', io)).toContain('INCOMPLETE')
 })
 test('unchanged lock metadata and dependency-order differences produce no package delta', () => {

@@ -2,11 +2,21 @@ import { decodeDocument, emptyDocument, execute, type MemoDocument, type Command
 export type Storage = { get(key: string): Promise<unknown>; set(key: string, value: unknown): Promise<void> }
 type Context = { key: string; generation: number; ready: Promise<void>; tail: Promise<void>; document?: MemoDocument; error?: string }
 
-export function storeKey(cwd: string, id: string): string {
+function identity(cwd: string, id: string): string {
   if (!cwd || !id || !/^(?:\/|[A-Za-z]:[\\/])/.test(cwd)) throw new Error('세션 폴더와 ID를 확인할 수 없습니다.')
   const folder = cwd.startsWith('/') ? cwd.replace(/\/+$/, '') || '/'
     : /^[A-Za-z]:[\\/]$/.test(cwd) ? cwd : cwd.replace(/[\\/]+$/, '')
-  return `pin-memo:v1:${JSON.stringify([folder, id])}`
+  return JSON.stringify([folder, id])
+}
+
+export function storeKey(cwd: string, id: string): string {
+  const text = identity(cwd, id)
+  const hash = [0, 0x9747b28c].map(seed => {
+    let h = (0x811c9dc5 ^ seed) >>> 0
+    for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193)
+    return (h >>> 0).toString(16).padStart(8, '0')
+  }).join('')
+  return `pin-memo:v2:${hash}`
 }
 
 export class MemoController {
@@ -25,7 +35,13 @@ export class MemoController {
     this.current = ctx
     ctx.ready = (async () => {
       await prior
-      try { ctx.document = decodeDocument(await this.store.get(key)); ctx.error = undefined }
+      try {
+        let saved = await this.store.get(key)
+        const legacy = `pin-memo:v1:${identity(cwd, id)}`
+        if (saved === undefined && legacy.length <= 256) saved = await this.store.get(legacy)
+        ctx.document = decodeDocument(saved)
+        ctx.error = undefined
+      }
       catch (error) { ctx.error = `메모를 불러오지 못했습니다: ${error instanceof Error ? error.message : String(error)}` }
     })()
     return ctx.ready

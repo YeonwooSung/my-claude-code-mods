@@ -29,17 +29,23 @@ export function hash(text: string): string {
     return (h >>> 0).toString(16).padStart(8, '0')
   }).join('')
 }
-export function relativePath(root: string, path: string): string | undefined {
-  const normalize = (p: string) => {
-    const parts: string[] = []
-    for (const s of p.replace(/\\/g, '/').split('/')) {
-      if (!s || s === '.') continue
-      if (s === '..') { if (!parts.length) return undefined; parts.pop() } else parts.push(s)
-    }
-    return parts.join('/')
+function normalizePath(p: string, windows: boolean): string | undefined {
+  const parts: string[] = []
+  for (const s of (windows ? p.replace(/\\/g, '/') : p).split('/')) {
+    if (!s || s === '.') continue
+    if (s === '..') { if (!parts.length) return undefined; parts.pop() } else parts.push(s)
   }
-  const base = normalize(root); if (base === undefined) return undefined
-  const full = normalize(path.startsWith('/') ? path : `${root}/${path}`)
+  return parts.join('/')
+}
+// A lexical identity for matching cwd-relative Git paths and absolute tool paths, including outside cwd.
+export function pathIdentity(root: string, path: string): string | undefined {
+  const windows = /^[A-Za-z]:[\\/]/.test(root)
+  const absolute = path.startsWith('/') || (windows && /^[A-Za-z]:[\\/]/.test(path))
+  return normalizePath(absolute ? path : `${root}/${path}`, windows)
+}
+export function relativePath(root: string, path: string): string | undefined {
+  const base = normalizePath(root, /^[A-Za-z]:[\\/]/.test(root)); if (base === undefined) return undefined
+  const full = pathIdentity(root, path)
   if (full === undefined) return undefined
   if (base === '') return root.startsWith('/') ? full : undefined
   if (!(full === base || full.startsWith(base + '/'))) return undefined
@@ -60,7 +66,19 @@ export async function git(io: Port, args: string[]): Promise<string> {
   if (r.stdout.length > 2 * 1024 * 1024) throw new Error('Git evidence exceeds 2 MiB limit')
   return r.stdout
 }
-export async function statusPaths(io: Port): Promise<string[]> { return changedPaths(await git(io, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])) }
+export async function statusPaths(io: Port): Promise<string[]> {
+  // Porcelain paths are always relative to the repository root, even from a nested cwd.
+  const prefix = (await git(io, ['rev-parse', '--show-prefix'])).replace(/\n$/, '')
+  if (prefix && (!prefix.endsWith('/') || prefix.includes('\0') || prefix.split('/').some(p => p === '.' || p === '..')))
+    throw new Error('Git working-directory prefix unavailable')
+  const base = prefix.split('/').filter(Boolean)
+  return changedPaths(await git(io, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])).map(path => {
+    const parts = path.split('/')
+    let common = 0
+    while (common < base.length && common < parts.length && base[common] === parts[common]) common++
+    return [...base.slice(common).map(() => '..'), ...parts.slice(common)].join('/')
+  })
+}
 export async function revision(io: Port): Promise<string | undefined> {
   try {
     const root = (await git(io, ['rev-parse', '--show-toplevel'])).replace(/\n$/, '')

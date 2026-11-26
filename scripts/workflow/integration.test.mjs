@@ -4,7 +4,9 @@ import { mkdtemp, readFile, writeFile, rm, mkdir, lstat, symlink } from 'node:fs
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { revision } from '../../verify-board/hooks/core/runtime.ts'
+import { revision, statusPaths } from '../../verify-board/hooks/core/runtime.ts'
+import { Feature as Scope } from '../../scope-guard/hooks/core/feature.ts'
+import { ShadowGit } from '../../time-machine/hooks/git.ts'
 import { Feature as Verify } from '../../verify-board/hooks/core/feature.ts'
 import { Feature as Review } from '../../review-queue/hooks/core/feature.ts'
 import { Feature as Deps } from '../../dependency-lens/hooks/core/feature.ts'
@@ -168,4 +170,64 @@ test('snapshot count limits reject evidence before reading excess untracked file
   let reads = 0
   assert.equal(await revision({ ...r.io, bytes: async () => { reads++; return '' } }), undefined)
   assert.equal(reads, 0)
+})
+
+test('nested sessions normalize status paths and never review files outside cwd', async t => {
+  const r = await repository(t), cwd = join(r.cwd, 'packages/app')
+  await mkdir(cwd, { recursive: true })
+  await r.write('packages/app/a.ts', 'base'); await r.write('outside.ts', 'base')
+  await r.git('add', '.'); await r.git('commit', '-qm', 'base')
+  let outsideReads = 0
+  const io = { ...r.io, cwd, bytes: async path => { if (path.includes('/../')) outsideReads++; return r.io.bytes(path) } }
+  const scope = new Scope(); await scope.command('allow .', io)
+  await r.write('packages/app/a.ts', 'changed'); await r.write('outside.ts', 'changed')
+  assert.deepEqual(await statusPaths(io), ['../../outside.ts', 'a.ts'])
+  const scoped = await scope.command('list', io)
+  assert.match(scoped, /IN-SCOPE a\.ts/); assert.match(scoped, /OUTSIDE \.\.\/\.\.\/outside\.ts/)
+  const review = new Review(), report = await review.command('mark a.ts', io)
+  assert.match(report, /REVIEWED a\.ts/); assert.match(report, /OUTSIDE \.\.\/\.\.\/outside\.ts/)
+  assert.equal(outsideReads, 0)
+  await r.git('mv', 'packages/app/a.ts', 'packages/app/new.ts')
+  const paths = await statusPaths(io)
+  assert.ok(paths.includes('a.ts')); assert.ok(paths.includes('new.ts'))
+})
+
+test('dependency baseline resolves the same nested package as the working manifest', async t => {
+  const r = await repository(t), cwd = join(r.cwd, 'packages/app')
+  await mkdir(cwd, { recursive: true })
+  const manifest = name => JSON.stringify({ dependencies: { [name]: '1.0.0' } })
+  const lock = name => JSON.stringify({ lockfileVersion: 3, packages: { '': {}, [`node_modules/${name}`]: { version: '1.0.0' } } })
+  for (const [prefix, name] of [['', 'root-only'], ['packages/app/', 'app-only']]) {
+    await r.write(prefix + 'package.json', manifest(name)); await r.write(prefix + 'package-lock.json', lock(name))
+  }
+  await r.git('add', '.'); await r.git('commit', '-qm', 'base')
+  const io = { ...r.io, cwd }, deps = new Deps()
+  const clean = await deps.command('', io)
+  assert.match(clean, /Lock delta: \+0 -0 ~0/); assert.doesNotMatch(clean, /root-only|DIRECT /)
+  await r.write('packages/app/package.json', JSON.stringify({ dependencies: { 'app-only': '2.0.0' } }))
+  assert.match(await deps.command('', io), /app-only: 1\.0\.0 -> 2\.0\.0/)
+  await rm(join(cwd, 'package.json')); await rm(join(cwd, 'package-lock.json'))
+  const removed = await deps.command('', { ...io, list: path => import('node:fs/promises').then(fs => fs.readdir(path)) })
+  assert.match(removed, /app-only: 1\.0\.0 -> \(absent\)/); assert.doesNotMatch(removed, /root-only/)
+})
+
+test('Time Machine refuses truncated ignored-file evidence without overwriting the real working file', async t => {
+  const r = await repository(t), base = await mkdtemp(join(tmpdir(), 'tm-safety-'))
+  t.after(() => rm(base, { recursive: true, force: true }))
+  await mkdir(join(base, 'index'))
+  let truncate = false
+  const runner = async (argv, options = {}) => {
+    const result = spawnSync(argv[0], argv.slice(1), { cwd: options.cwd ?? r.cwd, env: { ...process.env, ...options.env }, encoding: 'utf8', timeout: 10_000 })
+    if (result.error) throw result.error
+    if (truncate && argv.includes('ls-files') && argv.includes('--others')) return { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: true }
+    return { exitCode: result.status ?? 1, stdout: result.stdout, stderr: result.stderr, isStdoutTruncated: false, isStderrTruncated: false }
+  }
+  const shadow = new ShadowGit(runner, join(base, 'shadow.git'), r.cwd, join(base, 'index/s'))
+  await shadow.init(); await r.write('.env', 'old snapshot\n')
+  const target = await shadow.snapshot(undefined, 'base', 'refs/tm/s/main')
+  await r.write('.env', 'new ignored content\n'); await r.write('.gitignore', '.env\n')
+  const from = await shadow.snapshot(target.commit, 'ignore env', 'refs/tm/s/main')
+  truncate = true
+  await assert.rejects(shadow.restore(target.commit, 'refs/tm/s/main', from.commit, 'restore'), /truncated/)
+  assert.equal(await readFile(join(r.cwd, '.env'), 'utf8'), 'new ignored content\n')
 })

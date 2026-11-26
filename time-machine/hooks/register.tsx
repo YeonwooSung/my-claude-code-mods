@@ -76,7 +76,7 @@ const message = (error: unknown): string => (error instanceof Error ? error.mess
 function runnerOf($: EngineInterface): Runner {
   return async (argv, opts) => {
     const r = await $.process.run(argv, opts)
-    return { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr }
+    return { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr, isStdoutTruncated: r.isStdoutTruncated, isStderrTruncated: r.isStderrTruncated }
   }
 }
 
@@ -678,15 +678,17 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('turn.step', async function* ($, e, next) {
+    const c = ctx
+    const turn = c?.rec.turn
     let text = ''
     const tools: { id: string; tool: string }[] = []
     for await (const chunk of next(e)) {
       try {
         if (chunk.kind === 'text') text += chunk.text
         else if (chunk.kind === 'tool') tools.push({ id: chunk.id, tool: chunk.name })
-        else if (chunk.kind === 'stop' && ctx && !ctx.ended)
-          ctx.rec.addModel({
-            turn: ctx.rec.turn,
+        else if (chunk.kind === 'stop' && c && c === ctx && !c.ended)
+          c.rec.addModel({
+            turn: turn!,
             index: e.index,
             ...(e.agentId !== undefined ? { agentId: e.agentId } : {}),
             model: e.model,
@@ -700,7 +702,7 @@ export const register: Register = (on, options) => {
       }
       yield chunk
     }
-    if (ctx) await persist($, ctx).catch(() => undefined)
+    if (c && c === ctx && !c.ended) await persist($, c).catch(() => undefined)
   })
 
   on('command.run', { command: 'tm' }, async ($, e) => {

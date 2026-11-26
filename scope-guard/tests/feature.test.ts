@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 import { Feature } from '../hooks/core/feature.ts'
-const io = (status = '') => ({ cwd: '/repo', read: async () => '', run: async () => ({ exitCode: 0, stdout: status, stderr: '' }), env: async () => undefined, revision: async () => 'a' })
+const io = (status = '') => ({ cwd: '/repo', read: async () => '', run: async (args: readonly string[]) => ({ exitCode: 0, stdout: args.includes('--show-prefix') ? '' : status, stderr: '' }), env: async () => undefined, revision: async () => 'a' })
 test('explicit path scopes accept descendants, reject prefix siblings and show both rename sides', async () => {
   const f = new Feature()
   await f.command('allow src/auth', io())
@@ -46,4 +46,23 @@ test('root scope includes project files but never outside writes and denied edit
   expect(report).toContain('IN-SCOPE nested/file.ts')
   expect(report).toContain('OUTSIDE /outside/file.ts')
   expect(report).not.toContain('denied.ts')
+})
+
+test('observed outside writes invalidate baseline labels without duplicate path identities', async () => {
+  const port = { ...io(), cwd: '/repo/packages/app', run: async (args: readonly string[]) => ({ exitCode: 0, stdout: args.includes('--show-prefix') ? 'packages/app/\n' : ' M outside.ts\0', stderr: '' }) }
+  const f = new Feature()
+  await f.command('allow .', port)
+  await f.observe({ tool: 'Write', input: { file_path: '/repo/outside.ts' }, result: { text: 'ok' } }, port)
+  const report = await f.command('list', port)
+  expect(report).toContain('OUTSIDE ../../outside.ts')
+  expect(report).not.toContain('PRE-EXISTING')
+  expect(report).not.toContain('OUTSIDE /repo/outside.ts')
+})
+
+test('POSIX backslash filenames remain distinct from directory separators during deduplication', async () => {
+  const f = new Feature()
+  await f.command('allow .', io())
+  const report = await f.command('list', io(' M a\\b.ts\0 M a/b.ts\0'))
+  expect(report).toContain('IN-SCOPE a\\b.ts')
+  expect(report).toContain('IN-SCOPE a/b.ts')
 })

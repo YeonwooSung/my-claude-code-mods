@@ -43,9 +43,10 @@ export class Feature {
     const sections = new Map<string, string[]>(); let incomplete = paths.length > 200
     for (const path of paths.slice(0, 200)) {
       const purpose = this.data.groups.find(g => g.path === path)?.purpose ?? 'Ungrouped'
-      const current = await signature(io, path), previous = this.data.reviews.find(r => r.path === path)
-      if (!current) incomplete = true
-      const state = !current ? 'UNKNOWN' : !previous ? 'PENDING' : previous.signature === current ? 'REVIEWED' : 'STALE'
+      const local = relativePath(io.cwd, path) === path
+      const current = local ? await signature(io, path) : undefined, previous = this.data.reviews.find(r => r.path === path)
+      if (local && !current) incomplete = true
+      const state = !local ? 'OUTSIDE' : !current ? 'UNKNOWN' : !previous ? 'PENDING' : previous.signature === current ? 'REVIEWED' : 'STALE'
       if (!sections.has(purpose)) sections.set(purpose, [])
       sections.get(purpose)!.push(`${state} ${safeText(path)}`)
     }

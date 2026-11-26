@@ -29,7 +29,7 @@ Development: `npm test`, `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test
 /review-queue unmark src/auth.ts
 ```
 
-File-level groups, not hunk groups. Up to 200 changed files. Both staged and unstaged diffs and binary working content contribute to review signatures. Missing evidence cannot become REVIEWED. Run from repository root.
+File-level groups, not hunk groups. Up to 200 changed files. Both staged and unstaged diffs and binary working content contribute to review signatures. Missing evidence cannot become REVIEWED. Git paths are relative to the current session folder.
 
 Local preview before marketplace publication: `claude --plugin-dir ./review-queue` from this checkout. Engine tests were run with Claude Code 2.1.302.
 
@@ -61,3 +61,7 @@ For review: `String.raw`/regular-expression literals in the redactor are string-
 Selected local file bytes, diffs and status are read to fingerprint review evidence and maintain the local review queue.
 
 The destination of `process.run` is the local Git executable. Its argv contains the documented Git subcommand/options and local project paths or selected refs, with the session cwd as the working directory. File contents are not inserted into shell code, sent as stdin, or posted to a server by this adapter. Git reads the repository locally and returns stdout/stderr for this analysis. Reports return to the local slash-command caller; persisted feature records go to this plugin’s local cwd/session-scoped store. This mod has no HTTP upload, remote recipient, server-provided command source or own tool replay. It forwards independently requested tool calls once; any network activity of those calls belongs to their original inputs and permissions. The program list above describes what the mod requests; installed executables and user/system configuration retain their own capabilities.
+
+## Review fixes (2026-11-26)
+
+Nested working directories are supported. Repository changes outside cwd are listed as `OUTSIDE`; their files are not read for review signatures and cannot be marked REVIEWED from this folder.

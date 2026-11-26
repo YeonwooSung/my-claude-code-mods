@@ -125,5 +125,53 @@ test('an add arriving during a successful load preserves previously saved notes'
 
 test('distinct POSIX folder names ending in a backslash do not share persistence keys', () => {
   expect(storeKey('/repo\\', 's')).not.toBe(storeKey('/repo', 's'))
-  expect(storeKey('/', 's')).toBe('pin-memo:v1:["/","s"]')
+  expect(storeKey('/', 's')).toMatch(/^pin-memo:v2:[0-9a-f]{16}$/)
+})
+
+test('long POSIX and escaped Windows identities use bounded keys and survive reload', async () => {
+  for (const cwd of ['/workspace/' + 'nested/'.repeat(50), 'C:\\' + 'nested\\'.repeat(40)]) {
+    const data = new Map<string, unknown>()
+    const check = (key: string) => { if (key.length > 256) throw new Error('store key exceeds 256') }
+    const storage = { get: async (key: string) => { check(key); return data.get(key) }, set: async (key: string, value: unknown) => { check(key); data.set(key, value) } }
+    const first = new MemoController(storage)
+    await first.activate(cwd, 'session')
+    expect(first.snapshot().error).toBeUndefined()
+    await first.run('long-path note')
+    const reloaded = new MemoController(storage); await reloaded.activate(cwd, 'session')
+    expect(reloaded.snapshot().document?.items[0]?.text).toBe('long-path note')
+    expect(storeKey(cwd, 'session').length).toBeLessThanOrEqual(256)
+    expect(storeKey(cwd, 'session')).not.toBe(storeKey(cwd, 'other-session'))
+  }
+})
+
+test('bounded legacy fallback migrates on mutation and never queries a 257-character key', async () => {
+  for (const length of [256, 257]) {
+    const legacy = (cwd: string) => `pin-memo:v1:${JSON.stringify([cwd, 's'])}`
+    const cwd = '/' + 'x'.repeat(length - legacy('/').length), key = legacy(cwd)
+    expect(key.length).toBe(length)
+    const data = new Map<string, unknown>(), reads: string[] = []
+    if (length === 256) data.set(key, { version: 1, nextId: 2, items: [{ id: 1, text: 'legacy', checked: null }] })
+    const c = new MemoController({ get: async k => { reads.push(k); if (k.length > 256) throw new Error('oversized key'); return data.get(k) }, set: async (k, v) => { data.set(k, v) } })
+    await c.activate(cwd, 's')
+    expect(c.snapshot().error).toBeUndefined()
+    expect(c.snapshot().document?.items.length).toBe(length === 256 ? 1 : 0)
+    expect(reads.includes(key)).toBe(length === 256)
+    await c.run('new note')
+    expect(storeKey(cwd, 's')).not.toBe(key)
+    expect(data.has(storeKey(cwd, 's'))).toBe(true)
+    const restored = new MemoController({ get: async k => data.get(k), set: async () => {} })
+    await restored.activate(cwd, 's')
+    expect(restored.snapshot().document?.items.map(m => m.text)).toEqual(length === 256 ? ['legacy', 'new note'] : ['new note'])
+  }
+})
+
+test('a corrupt legacy document stays protected until explicit clear under the new key', async () => {
+  const data = new Map<string, unknown>([['pin-memo:v1:["/repo","s"]', { version: 99 }]])
+  const c = new MemoController({ get: async k => data.get(k), set: async (k, v) => { data.set(k, v) } })
+  await c.activate('/repo', 's')
+  expect(c.snapshot().error).toBeDefined()
+  await expect(c.run('new note')).rejects.toThrow()
+  await c.run('clear')
+  expect(c.snapshot().document?.items).toEqual([])
+  expect(data.get('pin-memo:v1:["/repo","s"]')).toEqual({ version: 99 })
 })

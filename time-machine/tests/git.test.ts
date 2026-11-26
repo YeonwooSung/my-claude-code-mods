@@ -355,3 +355,21 @@ test('diffText stops reading the patch after the lines it shows', async () => {
   const short = fake((sub, args) => (sub === 'diff' && !args.includes('--stat') ? { stdout: 'l1\n' } : undefined))
   expect((await G(short).diffText('c1', 'c2', 2)).more).toBe(false)
 })
+
+test('truncated ignored or target listings refuse restore before any destructive Git command', async () => {
+  for (const listing of ['ls-files', 'ls-tree']) {
+    const calls: string[][] = []
+    const runner: Runner = async argv => {
+      const args = argv.slice(argv.indexOf('core.quotepath=off') + 1)
+      calls.push([...args])
+      return { exitCode: 0, stdout: args[0] === 'write-tree' || args[0] === 'rev-parse' ? 'same-tree\n' : '', stderr: '', isStdoutTruncated: args[0] === listing && !args.includes('--cached'), isStderrTruncated: false }
+    }
+    await expect(new ShadowGit(runner, '/shadow', '/project', '/index').restore('old', 'ref', 'now', 'restore')).rejects.toThrow('truncated')
+    expect(calls.some(args => ['read-tree', 'commit-tree', 'update-ref'].includes(args[0]!))).toBe(false)
+  }
+})
+
+test('truncated stderr is incomplete evidence even with exit zero', async () => {
+  const runner: Runner = async () => ({ exitCode: 0, stdout: 'partial', stderr: 'partial', isStderrTruncated: true })
+  await expect(new ShadowGit(runner, '/shadow', '/project', '/index').nameStatus('a', 'b')).rejects.toThrow('truncated')
+})

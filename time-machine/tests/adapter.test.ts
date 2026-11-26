@@ -346,3 +346,33 @@ test('a recording directory inside the plugin keeps data in memory and never wri
   expect(report).toContain('not persisted')
   expect(writes.size).toBe(0)
 })
+
+test('pre-clear model completions never enter the next session export',{options:{recordModelOutput:true}},async($,on)=>{
+ mock.clock(on);mock.env(on,{HOME:'/tmp/review-home'})
+ let id='old-session';const writes=new Map<string, string>()
+ on('session.id',()=>({value:id}));on('session.root',()=>({value:'/review-project'}));on('session.cwd',()=>({value:'/review-project'}))
+ on('fs.list',()=>({value:[]}));on('fs.write',(_$,e)=>{writes.set(e.path,e.text);return {value:undefined}})
+ on('session.start',()=>({cwd:'/review-project'}));on('session.end',()=>({sessionId:id}));on('turn.start',(_$,e)=>({turnId:e.turnId}))
+ const usage={model:'OLD_MODEL_SENTINEL',input_tokens:987654,output_tokens:1,cache_read_input_tokens:0,cache_creation_input_tokens:0}
+ on('turn.step',async function*(){yield {kind:'text',index:0,text:'OLD_STREAM_SENTINEL'};yield {kind:'stop',stopReason:'end_turn',usage};return {turnId:'old-turn',index:0,answer:'old',toolUses:[],stopReason:'end_turn',usage}})
+ await $.session.start({cwd:'/review-project',surface:null,isInteractive:false})
+ await $.turn.start({text:'old',turnId:'old-turn'})
+ const stream=$.turn.step({turnId:'old-turn',index:0,model:'OLD_MODEL_SENTINEL',messageCount:1});await stream.next()
+ await $.session.end({reason:'clear'} as never);id='new-session'
+ await $.turn.start({text:'new',turnId:'new-turn'})
+ await stream.next();await stream.next()
+ await $.command.run({command:'tm',args:''} as never)
+ const exported=[...writes.entries()].filter(([path])=>path.includes('/new-session/')).map(([,text])=>text).join('\n')
+ expect(exported).not.toContain('OLD_MODEL_SENTINEL')
+ expect(exported).not.toContain('987654')
+})
+
+test('process truncation flags reach snapshot safety checks without changing tool results', async ($, on) => {
+  world(on, new Map())
+  on('process.run', (_$, e) => ({ value: { exitCode: e.argv.includes('--verify') ? 1 : 0, stdout: '', stderr: '', isStdoutTruncated: e.argv.includes('--cached'), isStderrTruncated: false } }))
+  await $.session.start({ cwd: '/r', surface: null, isInteractive: false } as never)
+  expect((await $.tool.call({ tool: 'Write', file_path: '/r/a', content: 'fixture' } as never)).deny).toBe('not allowed')
+  const text = String((await $.command.run({ command: 'tm', args: '' } as never)).text)
+  expect(text).toContain('truncated')
+  expect(text).toContain('snapshots off')
+})
