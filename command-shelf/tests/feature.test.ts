@@ -51,3 +51,29 @@ test('multiline quoted secrets are excluded from replay retention', async () => 
   expect(f.data.commands).toHaveLength(0)
   expect(JSON.stringify(f.data)).not.toContain('FAKE_FIRST')
 })
+
+test('long successful commands retain the newest ids within the persistence byte budget', async () => {
+  const f = new Feature()
+  for (let i = 1; i <= 100; i++) await f.observe(event(`echo ${i} ` + 'x'.repeat(3500)), io)
+  expect(new TextEncoder().encode(JSON.stringify(f.data)).length).toBeLessThanOrEqual(240 * 1024)
+  expect(f.data.commands.at(-1)?.id).toBe(100)
+  expect(f.data.commands.length).toBeLessThan(100)
+  expect(await f.command('show 100', io)).toContain('echo 100')
+  await f.command('pin 100 ' + '한'.repeat(500), io)
+  expect(new TextEncoder().encode(JSON.stringify(f.data)).length).toBeLessThanOrEqual(240 * 1024)
+  expect(f.data.commands.some(c => c.id === 100)).toBe(true)
+})
+
+
+test('UTF-8 history compacts legacy data on duplicates and preserves a labelled old entry', async () => {
+  const commands = Array.from({ length: 200 }, (_, i) => ({ id: i + 1, command: `echo ${i} ` + '한'.repeat(1100), cwd: '/repo', label: '' }))
+  const f = new Feature({ nextId: 201, commands })
+  await f.command('pin 1 keep', io)
+  expect(f.data.commands.some(c => c.id === 1 && c.label === 'keep')).toBe(true)
+  expect(new TextEncoder().encode(JSON.stringify(f.data)).length).toBeLessThanOrEqual(240 * 1024)
+  const legacy = new Feature({ nextId: 201, commands })
+  await legacy.observe(event(commands.at(-1)!.command), io)
+  expect(legacy.data.nextId).toBe(201)
+  expect(legacy.data.commands.at(-1)?.id).toBe(200)
+  expect(new TextEncoder().encode(JSON.stringify(legacy.data)).length).toBeLessThanOrEqual(240 * 1024)
+})

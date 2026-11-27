@@ -29,7 +29,7 @@ Development: `npm test`, `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test
 /shelf run 1
 ```
 
-Up to 200 successful foreground commands. Commands containing recognized secrets or terminal escapes are excluded. Replay binds the original cwd and uses the Bash permission path; it never executes during listing. Other mods can observe an explicit replay. Environment values are not snapshotted. Shell cwd binding targets macOS/Linux.
+Up to 200 successful foreground commands within a 240 KiB UTF-8 state budget. Oldest records are evicted first; retained IDs stay stable. Commands containing recognized secrets or terminal escapes are excluded. Replay binds the original cwd and uses the Bash permission path; it never executes during listing. Other mods can observe an explicit replay. Environment values are not snapshotted. Shell cwd binding targets macOS/Linux.
 
 Local preview before marketplace publication: `claude --plugin-dir ./command-shelf` from this checkout. Engine tests were run with Claude Code 2.1.302.
 
@@ -52,3 +52,5 @@ For review: `String.raw`/regular-expression literals in the redactor are string-
 The `session.cwd` read selects the local cwd/session store identity and provides the working-directory prefix for a recorded command. On explicit `/shelf run <id>`, the adapter sends only `Bash` and the selected stored command text with a quoted `cd -- <recorded-cwd>` prefix to the host's `tool.call` API. It does not include the rest of the shelf, session transcript, arbitrary store entries or environment-variable values in that call. The Bash result returns to the local caller; observers may see that tool call under normal host behavior.
 
 This is a shell execution boundary: the selected command can read local files, launch other programs and send their data to hosts specified or resolved by that command and its configuration. There is no fixed host allowlist for explicit replay. Inspect the selected entry before running it; normal host tool permissions apply. The mod fetches no command from an HTTP service and has no direct HTTP client, telemetry endpoint or mod-chosen remote recipient. Listing, showing, pinning and observing commands never initiate a replay or upload. The `tool.call` observer forwards the original event once and records only eligible successful foreground Bash entries; it does not consume server responses as execution instructions.
+
+Storage failures do not affect Bash execution. A continuous observation failure warns once per session until a successful write; `/shelf list` shows the last safe diagnostic. Read/write failures distinguish quota, permissions, disk and invalid-data errors when the host provides that detail. The plugin does not delete other sessions to recover a full plugin store.

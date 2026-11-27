@@ -20,7 +20,7 @@ function deferred() { let resolve; const promise = new Promise(r => { resolve = 
 // Structured clones mirror engine store message boundaries rather than sharing mutable objects.
 function host(selected = modules, underlying = async () => success()) {
   const hooks = [], saved = new Map(), commands = new Map(), toasts = [], calls = [], reads = []
-  const controls = { id: 'A', cwd: '/repo', status: '', failGet: false, failSet: false, failIdentity: false, beforeGet: undefined }
+  const controls = { id: 'A', cwd: '/repo', status: '', failGet: false, failSet: false, failIdentity: false, beforeGet: undefined, beforeSet: undefined, beforeIdentity: undefined }
   const counts = { get: 0, set: 0 }
   const key = (name, id = controls.id) => `${name}:v1:${hash(JSON.stringify([controls.cwd, id]))}`
   const checkKey = name => { if (name.length > 256) throw new Error(`the key is ${name.length} characters, over the 256 limit`) }
@@ -38,10 +38,10 @@ function host(selected = modules, underlying = async () => success()) {
     return invoke(0, input)
   }
   const context = owner => ({
-    session: { cwd: async () => { if (controls.failIdentity) throw new Error('identity unavailable'); return controls.cwd }, id: async () => { if (controls.failIdentity) throw new Error('identity unavailable'); return controls.id } },
+    session: { cwd: async () => { if (controls.beforeIdentity) await controls.beforeIdentity(); if (controls.failIdentity) throw new Error('identity unavailable'); return controls.cwd }, id: async () => { if (controls.failIdentity) throw new Error('identity unavailable'); return controls.id } },
     store: {
       get: async name => { counts.get++; reads.push(name); checkKey(name); if (controls.beforeGet) await controls.beforeGet(name); if (controls.failGet) throw new Error('read unavailable'); return structuredClone(saved.get(name)) },
-      set: async (name, value) => { counts.set++; checkKey(name); if (controls.failSet) throw new Error('disk full'); saved.set(name, structuredClone(value)) },
+      set: async (name, value) => { counts.set++; checkKey(name); if (controls.beforeSet) await controls.beforeSet(name); if (controls.failSet) throw new Error('disk full'); saved.set(name, structuredClone(value)) },
     },
     command: { register: async spec => { if (commands.has(spec.name) && commands.get(spec.name) !== owner) throw new Error('command collision'); commands.set(spec.name, owner); return { command: spec.name } } },
     fs: { read: async (_path, options) => options?.as === 'bytes' ? { base64: '' } : '{}', list: async () => [], stat: async () => ({ kind: 'file', size: 0, mtimeMs: 0, isLink: false }) },
@@ -128,7 +128,7 @@ test('fallback read failures do not overwrite legacy state and later operations 
   const h = host([['handoff-pack', handoff]]), old = legacyKey('handoff-pack')
   h.saved.set(old, { goal: 'preserved goal' })
   h.controls.beforeGet = async key => { if (key === old) throw new Error('legacy read unavailable') }
-  assert.match((await h.command('handoff', 'note unsaved note')).text, /legacy read unavailable/)
+  assert.match((await h.command('handoff', 'note unsaved note')).text, /store read unavailable/)
   assert.equal(h.counts.set, 0); assert.equal(h.saved.size, 1)
   h.controls.beforeGet = undefined
   assert.match((await h.command('handoff', 'preview')).text, /preserved goal/)
@@ -281,4 +281,53 @@ test('identical session ids in different project folders never share saved decis
   h.controls.cwd = '/repo'
   const report = (await h.command('decision')).text
   assert.match(report, /project-A-only/); assert.doesNotMatch(report, /project-B-only/)
+})
+
+
+test('read failures report safe categories once and recover without leaking raw storage errors', async () => {
+  const h = host([['command-shelf', shelf]])
+  h.controls.beforeGet = async () => { throw new Error('EACCES FAKE_PRIVATE_STORE') }
+  await h.tool({ tool: 'Bash', command: 'echo one' })
+  await h.tool({ tool: 'Bash', command: 'echo two' })
+  assert.equal(h.toasts.length, 1)
+  assert.match(h.toasts[0], /storage permission denied/)
+  assert.doesNotMatch(h.toasts[0], /FAKE_PRIVATE_STORE/)
+  h.controls.beforeGet = undefined
+  assert.match((await h.command('shelf', 'list')).text, /storage permission denied/)
+  await h.tool({ tool: 'Bash', command: 'echo recovered' })
+  assert.doesNotMatch((await h.command('shelf', 'list')).text, /WARNING/)
+})
+
+test('an old session storage failure cannot warn or replace the new session warning', async () => {
+  const h = host([['command-shelf', shelf]])
+  h.controls.beforeSet = async () => { h.controls.id = 'B'; throw new Error('disk full') }
+  await h.tool({ tool: 'Bash', command: 'echo old' })
+  assert.deepEqual(h.toasts, [])
+  h.controls.beforeSet = undefined
+  assert.doesNotMatch((await h.command('shelf', 'list')).text, /WARNING/)
+  h.controls.failSet = true
+  await h.tool({ tool: 'Bash', command: 'echo new' })
+  assert.equal(h.toasts.length, 1)
+  assert.match(h.toasts[0], /disk full/)
+})
+
+
+test('a delayed failure cannot reinstate an observation warning after a later successful write', async () => {
+  const h = host([['command-shelf', shelf]]), entered = deferred(), resume = deferred()
+  h.controls.beforeSet = async () => {
+    h.controls.beforeSet = undefined
+    h.controls.beforeIdentity = async () => {
+      h.controls.beforeIdentity = undefined
+      entered.resolve()
+      await resume.promise
+    }
+    throw new Error('disk full')
+  }
+  const failed = h.tool({ tool: 'Bash', command: 'echo failed' })
+  await entered.promise
+  await h.tool({ tool: 'Bash', command: 'echo recovered' })
+  resume.resolve()
+  await failed
+  assert.deepEqual(h.toasts, [])
+  assert.doesNotMatch((await h.command('shelf', 'list')).text, /WARNING/)
 })
